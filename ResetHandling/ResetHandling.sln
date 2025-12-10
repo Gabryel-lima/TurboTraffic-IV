@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.36631.11
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ResetHandling", "ResetHandling.csproj", "{86DAFFAE-E9F8-4BB2-98F4-ADC5C3D33C3D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Debug|x86 = Debug|x86
+		Release|Any CPU = Release|Any CPU
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{86DAFFAE-E9F8-4BB2-98F4-ADC5C3D33C3D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{86DAFFAE-E9F8-4BB2-98F4-ADC5C3D33C3D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{86DAFFAE-E9F8-4BB2-98F4-ADC5C3D33C3D}.Debug|x86.ActiveCfg = Debug|x86
+		{86DAFFAE-E9F8-4BB2-98F4-ADC5C3D33C3D}.Debug|x86.Build.0 = Debug|x86
+		{86DAFFAE-E9F8-4BB2-98F4-ADC5C3D33C3D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{86DAFFAE-E9F8-4BB2-98F4-ADC5C3D33C3D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{86DAFFAE-E9F8-4BB2-98F4-ADC5C3D33C3D}.Release|x86.ActiveCfg = Release|x86
+		{86DAFFAE-E9F8-4BB2-98F4-ADC5C3D33C3D}.Release|x86.Build.0 = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {23AEFD8E-A9F7-45F3-812D-F1F58A867A1A}
+	EndGlobalSection
+EndGlobal
