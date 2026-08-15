@@ -53,7 +53,25 @@ TurboTraffic-IV/
 
 ## 🚀 Instalação
 
-Para instruções detalhadas de instalação, consulte o arquivo [INSTALL.md](INSTALL.md).
+### Automática (recomendado)
+
+Execute o script `Install-TurboTrafficIV.ps1` no PowerShell (Windows). Ele detecta automaticamente a instalação do GTA IV na Steam, Rockstar Games Launcher, GOG ou Epic Games e copia os arquivos para os lugares certos:
+
+```powershell
+.\Install-TurboTrafficIV.ps1
+```
+
+Opções úteis:
+- `-GamePath "D:\Caminho\Do\Jogo"` — pula a detecção automática
+- `-Backup` — faz backup dos arquivos existentes antes de sobrescrever
+- `-Uninstall` — remove o mod (`-UninstallMode Full` remove também as dependências compartilhadas)
+- `-Force` — não pede confirmação
+
+Se o PowerShell bloquear a execução de scripts, rode uma vez: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`.
+
+### Manual
+
+Para instruções detalhadas de instalação manual, consulte o arquivo [INSTALL.md](INSTALL.md).
 
 **Resumo rápido:**
 1. Copie todos os arquivos de `Main_GTAIV_Folder/` para o diretório principal do GTA IV
