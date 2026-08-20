@@ -203,7 +203,7 @@ public class HudManager
             CurrentTab.Draw(g, _bodyFont, ContentX, ContentY, ContentWidth, ContentHeight);
 
             HudTheme.DrawCell(g, _hintFont, PanelX + SidePadding, ContentBottom, FooterHeight,
-                "Tab trocar aba     ↑↓ navegar     ←→ ajustar     Enter confirmar     Esc fechar", HintColor);
+                "Tab trocar aba     ↑↓ navegar     ←→ ajustar     Enter confirmar     F1 abrir/fechar", HintColor);
         }
         catch (System.Exception ex)
         {
