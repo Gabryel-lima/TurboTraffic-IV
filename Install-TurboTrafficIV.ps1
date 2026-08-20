@@ -7,6 +7,12 @@
     GOG, Epic Games ou instalação manual) e copia os arquivos do mod e suas
     dependências para as pastas corretas do jogo.
 
+    Rodar o instalador de novo por cima de uma instalação existente atualiza o mod:
+    os arquivos são sempre sobrescritos, e arquivos de versões antigas do
+    TurboTraffic-IV que não fazem mais parte da versão atual são removidos
+    automaticamente (com base num manifesto salvo na pasta do jogo). Não é
+    necessário apagar a instalação anterior manualmente antes de atualizar.
+
 .PARAMETER GamePath
     Caminho manual para o diretório do GTA IV. Se informado, pula a detecção automática.
 
@@ -68,6 +74,10 @@ $ModOnlyScriptsFiles = @('ResetHandling.net.dll', 'ResetHandling.net.pdb')
 
 $GameExecutables = @('GTAIV.exe', 'EFLC.exe')
 
+# Manifesto salvo na pasta do jogo para permitir que atualizações removam
+# automaticamente arquivos de versões antigas do mod que não existem mais.
+$ManifestFileName = 'TurboTrafficIV_manifest.json'
+
 function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
     $timestamp = Get-Date -Format 'HH:mm:ss'
@@ -89,6 +99,16 @@ function Test-GTAIVPath {
     if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $false }
     foreach ($exe in $GameExecutables) {
         if (Test-Path -LiteralPath (Join-Path $Path $exe)) { return $true }
+    }
+    return $false
+}
+
+function Test-GameProcessRunning {
+    foreach ($exeName in $GameExecutables) {
+        $procName = [System.IO.Path]::GetFileNameWithoutExtension($exeName)
+        if (Get-Process -Name $procName -ErrorAction SilentlyContinue) {
+            return $true
+        }
     }
     return $false
 }
@@ -395,14 +415,71 @@ function Backup-ExistingFiles {
     }
 }
 
+function Get-InstalledManifest {
+    param([string]$TargetGamePath)
+
+    $manifestPath = Join-Path $TargetGamePath $ManifestFileName
+    if (-not (Test-Path -LiteralPath $manifestPath)) { return $null }
+
+    try {
+        return Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    } catch {
+        Write-Log "Não foi possível ler o manifesto de instalação anterior ($manifestPath): $($_.Exception.Message)" 'WARN'
+        return $null
+    }
+}
+
+function Save-InstalledManifest {
+    param([string]$TargetGamePath, [string[]]$RelativeFiles)
+
+    $manifestPath = Join-Path $TargetGamePath $ManifestFileName
+    $manifest = [PSCustomObject]@{
+        InstalledAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+        Files       = @($RelativeFiles)
+    }
+
+    if ($PSCmdlet.ShouldProcess($manifestPath, 'Salvar manifesto de instalação')) {
+        $manifest | ConvertTo-Json | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+    }
+}
+
+function Remove-OrphanedModFiles {
+    param([string]$TargetGamePath, [string[]]$CurrentRelativeFiles)
+
+    $manifest = Get-InstalledManifest -TargetGamePath $TargetGamePath
+    if (-not $manifest -or -not $manifest.Files) { return }
+
+    $orphans = @($manifest.Files) | Where-Object { $CurrentRelativeFiles -notcontains $_ }
+    if ($orphans.Count -eq 0) { return }
+
+    Write-Log 'Removendo arquivos de uma versão anterior do mod que não existem mais...' 'STEP'
+    foreach ($relative in $orphans) {
+        $target = Join-Path $TargetGamePath $relative
+        if (Test-Path -LiteralPath $target) {
+            if ($PSCmdlet.ShouldProcess($target, 'Remover arquivo obsoleto de versão anterior')) {
+                Remove-Item -LiteralPath $target -Force
+                Write-Log "  Removido (versão anterior): $relative" 'OK'
+            }
+        }
+    }
+}
+
 function Install-Mod {
     param([string]$TargetGamePath)
 
-    Write-Log "Instalando TurboTraffic-IV em: $TargetGamePath" 'STEP'
+    Write-Log "Instalando/atualizando TurboTraffic-IV em: $TargetGamePath" 'STEP'
 
     if ($Backup) {
         Backup-ExistingFiles -TargetGamePath $TargetGamePath
     }
+
+    # Remove arquivos exclusivos do mod deixados por uma versão anterior que já
+    # não existem na versão atual, para que o usuário nunca precise apagar a
+    # instalação antiga manualmente antes de atualizar.
+    $currentModRelativeFiles = @()
+    $currentModRelativeFiles += $ModOnlyFiles
+    $currentModRelativeFiles += $ModOnlyScriptsFiles | ForEach-Object { "scripts\$_" }
+    Remove-OrphanedModFiles -TargetGamePath $TargetGamePath -CurrentRelativeFiles $currentModRelativeFiles
 
     # Passo 1: Loader + dependências para a raiz do jogo
     Write-Log 'Copiando arquivos de Main_GTAIV_Folder/ para o diretório do jogo...' 'STEP'
@@ -447,6 +524,8 @@ function Install-Mod {
     } else {
         Write-Log "Instalação concluída com pendências. Arquivos ausentes: $($missing -join ', ')" 'WARN'
     }
+
+    Save-InstalledManifest -TargetGamePath $TargetGamePath -RelativeFiles $currentModRelativeFiles
 }
 
 function Uninstall-Mod {
@@ -483,6 +562,13 @@ function Uninstall-Mod {
         }
     }
 
+    $manifestPath = Join-Path $TargetGamePath $ManifestFileName
+    if (Test-Path -LiteralPath $manifestPath) {
+        if ($PSCmdlet.ShouldProcess($manifestPath, 'Remover manifesto de instalação')) {
+            Remove-Item -LiteralPath $manifestPath -Force
+        }
+    }
+
     Write-Log 'Desinstalação concluída.' 'OK'
 }
 
@@ -499,6 +585,22 @@ if (-not (Test-Path $MainFolder) -or -not (Test-Path $ScriptsFolder)) {
     exit 1
 }
 
+if (-not $Uninstall) {
+    $requiredModFiles = @()
+    $requiredModFiles += $ModOnlyFiles | ForEach-Object { [PSCustomObject]@{ Folder = $MainFolder; Name = $_ } }
+    $requiredModFiles += $ModOnlyScriptsFiles | ForEach-Object { [PSCustomObject]@{ Folder = $ScriptsFolder; Name = $_ } }
+
+    $missingModFiles = $requiredModFiles | Where-Object { -not (Test-Path -LiteralPath (Join-Path $_.Folder $_.Name)) }
+    if ($missingModFiles.Count -gt 0) {
+        Write-Log 'Os binários do mod ainda não foram compilados neste repositório:' 'ERROR'
+        foreach ($f in $missingModFiles) {
+            Write-Log ("  Faltando: {0}" -f (Join-Path $f.Folder $f.Name)) 'ERROR'
+        }
+        Write-Log 'Compile ResetHandling.sln (config Release|x86) e MyLoader.sln (config Release|Win32) antes de instalar.' 'ERROR'
+        exit 1
+    }
+}
+
 $targetPath = Select-GamePath
 if (-not $targetPath) {
     exit 1
@@ -507,6 +609,11 @@ if (-not $targetPath) {
 Write-Host ''
 Write-Host "Diretório do jogo selecionado: $targetPath" -ForegroundColor Cyan
 Write-Host ''
+
+if (Test-GameProcessRunning) {
+    Write-Log 'O GTA IV parece estar em execução. Feche o jogo antes de instalar/atualizar/remover o mod: os arquivos ficam bloqueados enquanto o processo está aberto.' 'ERROR'
+    exit 1
+}
 
 if (-not $Force) {
     $action = if ($Uninstall) { 'DESINSTALAR' } else { 'INSTALAR' }

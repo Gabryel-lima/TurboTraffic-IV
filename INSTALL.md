@@ -2,6 +2,8 @@
 
 Este guia irá te ajudar a instalar o mod TurboTraffic-IV no Grand Theft Auto IV passo a passo.
 
+> **Prefira o instalador automático.** O script `Install-TurboTrafficIV.ps1` (na raiz do repositório) faz tudo isso por você, detecta o jogo automaticamente e — diferente da cópia manual abaixo — sabe atualizar uma instalação existente sozinho: sobrescreve os arquivos e remove qualquer arquivo de versão antiga do mod que não exista mais, sem você precisar apagar nada manualmente. Veja o [README.md](README.md#-instalação). O passo a passo manual abaixo é útil se você não puder rodar PowerShell ou quiser entender exatamente o que cada arquivo faz.
+
 ## 📍 Passo 1: Localizar o Diretório do GTA IV
 
 Primeiro, você precisa encontrar onde o GTA IV está instalado no seu computador.
@@ -137,9 +139,11 @@ Após copiar todos os arquivos, verifique se a instalação está correta:
 
 1. Inicie o GTA IV normalmente
 2. Se o mod carregar corretamente, você verá uma mensagem: "ScriptHookDotNet carregado com sucesso!"
-3. Entre no jogo e dirija próximo a veículos de NPCs - eles devem acelerar automaticamente
-4. Pressione **F5** para testar a explosão do jogador
-5. Pressione **F6** para testar a elevação de peds
+3. Assim que você puder controlar o personagem, deve aparecer uma dica na tela ensinando a abrir o HUD do mod com **F1**
+4. Pressione **F1** para abrir o HUD e navegue pelas abas Comandos, Spawn de Veículos e Configurações (veja os controles no [README.md](README.md#-controles))
+5. Entre no jogo e dirija próximo a veículos de NPCs - eles devem acelerar automaticamente (pode ser desligado na aba Configurações do HUD)
+6. Pressione **F5** para testar a explosão do jogador
+7. Pressione **F6** para testar a elevação de peds
 
 ## 🐛 Troubleshooting
 
@@ -168,6 +172,10 @@ Após copiar todos os arquivos, verifique se a instalação está correta:
 - O mod pode afetar o desempenho do jogo, especialmente com muitos veículos na tela
 - Se o jogo estiver muito lento, considere reduzir a distância de efeito no código fonte
 
+## ⬆️ Atualizando manualmente
+
+Se você atualizou o código e recompilou o mod (veja [ResetHandling/README.md](ResetHandling/README.md)), repita os Passos 2 e 4 acima e escolha **Substituir** quando o Windows perguntar — os arquivos antigos são sobrescritos. Se uma atualização remover algum arquivo que existia em versões antigas (por exemplo, um `.dll` que não é mais usado), você precisa apagá-lo manualmente, já que a cópia manual não faz essa limpeza sozinha (diferente do instalador automático `.ps1`, que remove arquivos obsoletos de versões antigas automaticamente).
+
 ## 🔄 Desinstalação
 
 Para remover o mod:
@@ -179,6 +187,7 @@ Para remover o mod:
    - `MyLoader.asi`
    - `MyLoader.pdb`
    - `aCompleteEditionHook.asi`
+   - `TurboTrafficIV_manifest.json` (criado apenas se você usou o instalador automático)
 
 2. Delete a pasta `scripts/` do diretório do jogo (ou apenas os arquivos do mod se você tiver outros mods instalados)
 
@@ -187,6 +196,8 @@ Para remover o mod:
 - `MyLoader.pdb`
 - `ResetHandling.net.dll`
 - `ResetHandling.net.pdb`
+- `scripts/ResetHandling.ini` (arquivo de configuração do HUD, criado pelo mod na primeira execução)
+- `TurboTrafficIV_manifest.json` (se existir)
 
 ## 📞 Suporte
 

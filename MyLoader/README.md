@@ -23,10 +23,10 @@ MyLoader/
 ├── MyLoader.sln          # Solução Visual Studio
 ├── MyLoader.vcxproj      # Projeto Visual Studio
 ├── MyLoader.vcxproj.filters
-├── MyLoader.vcxproj.user
-└── Release/              # Arquivos compilados (gerados após build)
-    └── MyLoader.asi      # Arquivo final compilado
+└── MyLoader.vcxproj.user
 ```
+
+A configuração `Release|Win32` grava a saída diretamente em `..\Main_GTAIV_Folder\` (a pasta `Main_GTAIV_Folder/` na raiz deste repositório), não numa pasta local `Release/`. Isso garante que compilar sempre atualiza o `MyLoader.asi` que o `Install-TurboTrafficIV.ps1` copia para o jogo.
 
 ## 🔧 Como Compilar
 
@@ -44,20 +44,21 @@ MyLoader/
 2. **Configurar a Build**
    - Selecione a configuração **Release**
    - Selecione a plataforma **Win32** (GTA IV é 32-bit)
-   - **Nota**: A configuração Release|Win32 compila como DLL (DynamicLibrary) e gera um arquivo `.asi`
+   - **Nota**: A configuração Release|Win32 compila como DLL (DynamicLibrary), gera um arquivo `.asi` e grava direto em `..\Main_GTAIV_Folder\` (a pasta do repositório)
 
 3. **Compilar**
    - Pressione `F7` ou vá em **Build** → **Build Solution**
-   - O arquivo `MyLoader.asi` será gerado na pasta `Release/`
+   - `MyLoader.asi` e `MyLoader.pdb` são gerados em `Main_GTAIV_Folder/`, na raiz do repositório
 
-4. **Copiar o Resultado**
-   - Copie `Release/MyLoader.asi` para o diretório principal do GTA IV
+4. **Instalar**
+   - Rode `Install-TurboTrafficIV.ps1` (na raiz do repositório) para copiar o resultado para a instalação do GTA IV. Ele sobrescreve automaticamente uma instalação anterior.
 
 ### Configurações Importantes
 
 - **Configuration Type**: `DynamicLibrary` (para gerar .asi)
 - **Target Extension**: `.asi` (definido no projeto Release|Win32)
 - **Platform**: Win32 (GTA IV é 32-bit)
+- **OutDir (Release|Win32)**: `..\Main_GTAIV_Folder\` — grava direto na pasta `Main_GTAIV_Folder/` deste repositório
 
 ## 📝 Explicação do Código
 

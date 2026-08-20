@@ -40,7 +40,7 @@
     <ErrorReport>prompt</ErrorReport>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x86'">
-    <OutputPath>..\..\..\..\..\Program Files %28x86%29\Steam\steamapps\common\Grand Theft Auto IV\GTAIV\scripts\</OutputPath>
+    <OutputPath>..\scripts\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <Optimize>true</Optimize>
     <DebugType>pdbonly</DebugType>
@@ -50,10 +50,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="ScriptHookDotNet">
-      <HintPath>..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Grand Theft Auto IV\GTAIV\scripts\ScriptHookDotNet.dll</HintPath>
+      <HintPath>..\scripts\ScriptHookDotNet.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
@@ -64,6 +65,14 @@
   <ItemGroup>
     <Compile Include="ResetVehicleScript.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Config\ModSettings.cs" />
+    <Compile Include="Keybinds\KeybindRegistry.cs" />
+    <Compile Include="Vehicles\VehicleCatalog.cs" />
+    <Compile Include="Hud\IHudTab.cs" />
+    <Compile Include="Hud\HudManager.cs" />
+    <Compile Include="Hud\CommandsTab.cs" />
+    <Compile Include="Hud\VehicleSpawnTab.cs" />
+    <Compile Include="Hud\SettingsTab.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

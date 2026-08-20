@@ -1,13 +1,20 @@
-﻿using GTA;
+using GTA;
 using GTA.Native;
 using System;
 using System.Windows.Forms;
 
 public class NPCTurboBoost : Script
 {
+    private readonly HudManager _hud = new HudManager();
+    private bool _tutorialShown;
+
     public NPCTurboBoost()
     {
+        ModSettings.Load();
+
         Tick += OnTick;
+        KeyDown += OnKeyDown;
+        PerFrameDrawing += OnPerFrameDrawing;
         Interval = 0; //ms
     }
 
@@ -72,7 +79,7 @@ public class NPCTurboBoost : Script
         if (playerInVehicle)
             playerVeh = Player.Character.CurrentVehicle;
 
-        float radius = 120.0f;
+        float radius = ModSettings.ChaosRadius;
 
         foreach (Vehicle v in World.GetAllVehicles())
         {
@@ -87,59 +94,78 @@ public class NPCTurboBoost : Script
             if (Player.Character.Position.DistanceTo(v.Position) > radius)
                 continue;
 
-            // --------------------------------------------------------------------
-            // NOVO FILTRO: só afeta veículos que realmente têm NPC dentro
-            // --------------------------------------------------------------------
+            // Só afeta veículos que realmente têm NPC dentro (ignora carros estacionados)
             Ped driver = v.GetPedOnSeat(VehicleSeat.Driver);
 
-            // Se NÃO tem motorista → é carro estacionado → IGNORA
             if (driver == null || !driver.Exists())
                 continue;
 
-            // Se o motorista é o player (raro mas seguro) → ignora
             if (driver == Player.Character)
                 continue;
-
-            // → Daqui pra frente: SOMENTE carros com NPC dentro
-            // --------------------------------------------------------------------
 
             // TURBO ABSURDO quando player está a pé e no veículo
             Vector3 speed = v.Velocity;
             Vector3 forward = v.Direction;
 
-            float turboPower = 70.0f;
+            float turboPower = ModSettings.ChaosTurboPower;
 
             Vector3 boostedVel = speed + (forward * turboPower);
 
             Function.Call("SET_CAR_VELOCITY", v, boostedVel.X, boostedVel.Y, boostedVel.Z);
             Function.Call("SET_CAR_FORWARD_SPEED", v, boostedVel.Length());
-            }   
+        }
+    }
+
+    private void ShowTutorialIfNeeded()
+    {
+        if (_tutorialShown)
+            return;
+
+        if (Player.Character == null || !Player.Character.Exists() || Player.Character.isDead)
+            return;
+
+        Game.DisplayText("Pressione F1 para abrir o HUD do TurboTraffic-IV (Comandos, Spawn de Veiculos e Configuracoes).", 8000);
+        _tutorialShown = true;
+    }
+
+    private void OnKeyDown(object sender, GTA.KeyEventArgs e)
+    {
+        if (_hud.IsOpen)
+        {
+            _hud.HandleKey(e.Key, e.Shift);
+            return;
         }
 
-    private void OnTick(object sender, EventArgs e)
-    {
-        // ================================
-        // ► ATIVAR EXPLOSÃO NO PLAYER
-        // ================================
+        if (e.Key == Keys.F1)
+        {
+            _hud.Toggle();
+            return;
+        }
 
-        if (Game.isKeyPressed(Keys.F5))
+        if (e.Key == Keys.F5)
         {
             ExplodePlayer();
+            return;
         }
 
-        // ================================
-        // ► ATIVAR Levitar dos Peds
-        // ================================
-
-        if (Game.isKeyPressed(Keys.F6))
+        if (e.Key == Keys.F6)
         {
             ElevatePeds();
         }
+    }
 
-        // ================================
-        // ► Lógica dos carros turbinados
-        // ================================
+    private void OnPerFrameDrawing(object sender, GraphicsEventArgs e)
+    {
+        _hud.Draw(e.Graphics);
+    }
 
-        ApplyTurboLogic();
+    private void OnTick(object sender, EventArgs e)
+    {
+        ShowTutorialIfNeeded();
+
+        if (ModSettings.ChaosEnabled)
+        {
+            ApplyTurboLogic();
+        }
     }
 }
