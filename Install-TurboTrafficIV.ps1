@@ -93,14 +93,34 @@ function Write-Log {
     }
 }
 
+function Resolve-GTAIVPath {
+    # Retorna o caminho real que contém GTAIV.exe/EFLC.exe a partir de um
+    # caminho candidato, ou $null se nenhum executável for encontrado.
+    #
+    # Necessário porque vários pacotes (ex.: a Complete Edition da Steam)
+    # instalam o(s) executável(is) numa subpasta GTAIV\ ou EFLC\ dentro da
+    # pasta principal do jogo, em vez de direto nela.
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $null }
+
+    foreach ($sub in @('', 'GTAIV', 'EFLC')) {
+        $candidate = if ($sub) { Join-Path $Path $sub } else { $Path }
+        if (-not (Test-Path -LiteralPath $candidate -PathType Container)) { continue }
+        foreach ($exe in $GameExecutables) {
+            if (Test-Path -LiteralPath (Join-Path $candidate $exe)) {
+                return $candidate
+            }
+        }
+    }
+
+    return $null
+}
+
 function Test-GTAIVPath {
     param([string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
-    if (-not (Test-Path -LiteralPath $Path -PathType Container)) { return $false }
-    foreach ($exe in $GameExecutables) {
-        if (Test-Path -LiteralPath (Join-Path $Path $exe)) { return $true }
-    }
-    return $false
+    return $null -ne (Resolve-GTAIVPath $Path)
 }
 
 function Test-GameProcessRunning {
@@ -166,8 +186,9 @@ function Get-SteamCandidates {
 
     foreach ($lib in ($libraryFolders | Select-Object -Unique)) {
         $candidatePath = Join-Path $lib 'steamapps\common\Grand Theft Auto IV'
-        if (Test-GTAIVPath $candidatePath) {
-            $candidates += [PSCustomObject]@{ Path = $candidatePath; Platform = 'Steam' }
+        $resolved = Resolve-GTAIVPath $candidatePath
+        if ($resolved) {
+            $candidates += [PSCustomObject]@{ Path = $resolved; Platform = 'Steam' }
         }
     }
 
@@ -188,8 +209,9 @@ function Get-RockstarCandidates {
                 $key = Get-ItemProperty -Path $regPath -ErrorAction Stop
                 $folder = $key.InstallFolder
                 if (-not $folder) { $folder = $key.InstallPath }
-                if ($folder -and (Test-GTAIVPath $folder)) {
-                    $candidates += [PSCustomObject]@{ Path = $folder; Platform = 'Rockstar Games Launcher' }
+                $resolved = Resolve-GTAIVPath $folder
+                if ($resolved) {
+                    $candidates += [PSCustomObject]@{ Path = $resolved; Platform = 'Rockstar Games Launcher' }
                 }
             }
         } catch { }
@@ -201,8 +223,9 @@ function Get-RockstarCandidates {
         "${env:ProgramFiles}\Rockstar Games\Grand Theft Auto IV Complete Edition",
         "${env:ProgramFiles(x86)}\Rockstar Games\Grand Theft Auto IV Complete Edition"
     )) {
-        if ($default -and (Test-GTAIVPath $default)) {
-            $candidates += [PSCustomObject]@{ Path = $default; Platform = 'Rockstar Games Launcher' }
+        $resolved = Resolve-GTAIVPath $default
+        if ($resolved) {
+            $candidates += [PSCustomObject]@{ Path = $resolved; Platform = 'Rockstar Games Launcher' }
         }
     }
 
@@ -225,8 +248,9 @@ function Get-GOGCandidates {
                         $name = $props.gameName
                         $path = $props.path
                         if ($path -and $name -and ($name -match 'Grand Theft Auto IV')) {
-                            if (Test-GTAIVPath $path) {
-                                $candidates += [PSCustomObject]@{ Path = $path; Platform = 'GOG' }
+                            $resolved = Resolve-GTAIVPath $path
+                            if ($resolved) {
+                                $candidates += [PSCustomObject]@{ Path = $resolved; Platform = 'GOG' }
                             }
                         }
                     } catch { }
@@ -239,8 +263,9 @@ function Get-GOGCandidates {
         "${env:ProgramFiles(x86)}\GOG Games\Grand Theft Auto IV Complete Edition",
         "${env:ProgramFiles(x86)}\GOG Games\Grand Theft Auto IV"
     )) {
-        if ($default -and (Test-GTAIVPath $default)) {
-            $candidates += [PSCustomObject]@{ Path = $default; Platform = 'GOG' }
+        $resolved = Resolve-GTAIVPath $default
+        if ($resolved) {
+            $candidates += [PSCustomObject]@{ Path = $resolved; Platform = 'GOG' }
         }
     }
 
@@ -259,8 +284,9 @@ function Get-EpicCandidates {
                 $displayName = $manifest.DisplayName
                 $installLocation = $manifest.InstallLocation
                 if ($displayName -match 'Grand Theft Auto IV' -and $installLocation) {
-                    if (Test-GTAIVPath $installLocation) {
-                        $candidates += [PSCustomObject]@{ Path = $installLocation; Platform = 'Epic Games' }
+                    $resolved = Resolve-GTAIVPath $installLocation
+                    if ($resolved) {
+                        $candidates += [PSCustomObject]@{ Path = $resolved; Platform = 'Epic Games' }
                     }
                 }
             } catch { }
@@ -271,8 +297,9 @@ function Get-EpicCandidates {
         "${env:ProgramFiles}\Epic Games\GTAIV",
         "${env:ProgramFiles(x86)}\Epic Games\GTAIV"
     )) {
-        if ($default -and (Test-GTAIVPath $default)) {
-            $candidates += [PSCustomObject]@{ Path = $default; Platform = 'Epic Games' }
+        $resolved = Resolve-GTAIVPath $default
+        if ($resolved) {
+            $candidates += [PSCustomObject]@{ Path = $resolved; Platform = 'Epic Games' }
         }
     }
 
@@ -299,8 +326,9 @@ function Get-ManualCandidates {
     foreach ($drive in $drives) {
         foreach ($sub in $commonSubpaths) {
             $candidatePath = Join-Path "$($drive.Root)" $sub
-            if (Test-GTAIVPath $candidatePath) {
-                $candidates += [PSCustomObject]@{ Path = $candidatePath; Platform = 'Manual/Outro' }
+            $resolved = Resolve-GTAIVPath $candidatePath
+            if ($resolved) {
+                $candidates += [PSCustomObject]@{ Path = $resolved; Platform = 'Manual/Outro' }
             }
         }
     }
@@ -318,7 +346,11 @@ function Find-GTAIVInstallations {
     $all += Get-EpicCandidates
     $all += Get-ManualCandidates
 
-    $unique = $all | Sort-Object Path -Unique
+    # Envolver com @(...) garante que o retorno seja sempre um array (mesmo com
+    # 0 ou 1 item) — sem isso, o PowerShell pode "desembrulhar" o resultado do
+    # pipeline para $null quando não há nenhuma instalação, e o código chamador
+    # (que testa $found.Count -eq 0) nunca bate porque $null.Count não é 0.
+    $unique = @($all | Sort-Object Path -Unique)
     return $unique
 }
 
@@ -328,22 +360,24 @@ function Find-GTAIVInstallations {
 
 function Select-GamePath {
     if ($GamePath) {
-        if (Test-GTAIVPath $GamePath) {
-            Write-Log "Usando caminho informado manualmente: $GamePath" 'OK'
-            return $GamePath
+        $resolved = Resolve-GTAIVPath $GamePath
+        if ($resolved) {
+            Write-Log "Usando caminho informado manualmente: $resolved" 'OK'
+            return $resolved
         } else {
-            Write-Log "O caminho informado ('$GamePath') não contém GTAIV.exe ou EFLC.exe." 'ERROR'
+            Write-Log "O caminho informado ('$GamePath') não contém GTAIV.exe ou EFLC.exe (nem em GTAIV\ ou EFLC\)." 'ERROR'
             return $null
         }
     }
 
-    $found = Find-GTAIVInstallations
+    $found = @(Find-GTAIVInstallations)
 
     if ($found.Count -eq 0) {
         Write-Log 'Nenhuma instalação do GTA IV foi detectada automaticamente.' 'WARN'
         $manual = Read-Host 'Digite o caminho completo da pasta do GTA IV (onde está o GTAIV.exe/EFLC.exe)'
-        if (Test-GTAIVPath $manual) {
-            return $manual
+        $resolved = Resolve-GTAIVPath $manual
+        if ($resolved) {
+            return $resolved
         }
         Write-Log 'Caminho inválido. Abortando.' 'ERROR'
         return $null
@@ -369,7 +403,8 @@ function Select-GamePath {
     $choiceIndex = [int]$choice
     if ($choiceIndex -eq ($found.Count + 1)) {
         $manual = Read-Host 'Digite o caminho completo da pasta do GTA IV'
-        if (Test-GTAIVPath $manual) { return $manual }
+        $resolved = Resolve-GTAIVPath $manual
+        if ($resolved) { return $resolved }
         Write-Log 'Caminho inválido. Abortando.' 'ERROR'
         return $null
     }

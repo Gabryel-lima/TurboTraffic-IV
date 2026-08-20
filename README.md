@@ -141,6 +141,7 @@ Se o mod não funcionar:
 4. Certifique-se de estar usando uma versão compatível do GTA IV
 5. Se o instalador reclamar de arquivos ausentes, compile `ResetHandling.sln` (Release|x86) e `MyLoader.sln` (Release|Win32) antes de instalar
 6. Se o instalador travar dizendo que o jogo está em execução, feche o GTA IV e rode o instalador de novo
+7. Se a detecção automática não encontrar sua instalação (ex.: aparece "Múltiplas instalações" sem nenhuma listada), use `-GamePath` apontando para a pasta onde está o `GTAIV.exe`/`EFLC.exe` — o instalador também aceita a pasta um nível acima (ex. a pasta "Grand Theft Auto IV" da Complete Edition da Steam, que contém uma subpasta `GTAIV\`)
 
 Para mais detalhes, consulte [INSTALL.md](INSTALL.md).
 
