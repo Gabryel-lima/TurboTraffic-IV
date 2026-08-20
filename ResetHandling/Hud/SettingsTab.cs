@@ -7,6 +7,8 @@ public class SettingsTab : IHudTab
 {
     private static readonly string[] Rows = { "Caos no trânsito", "Raio de alcance", "Força de aceleração" };
 
+    private const float ValueColumnOffset = 340f;
+
     private int _selectedIndex;
 
     public void MoveSelection(int direction)
@@ -42,16 +44,29 @@ public class SettingsTab : IHudTab
     public void Draw(Graphics g, Font font, float x, float y, float width, float height)
     {
         float lineY = y;
+
         for (int i = 0; i < Rows.Length; i++)
         {
             bool selected = i == _selectedIndex;
-            string prefix = selected ? "> " : "   ";
-            Color color = selected ? Color.Yellow : Color.White;
-            g.DrawText(prefix + Rows[i] + ": " + GetValueLabel(i), x, lineY, color, font);
-            lineY += 20f;
+
+            if (selected)
+                HudTheme.FillRect(g, x - HudTheme.RowTextInset, lineY, width + (HudTheme.RowTextInset * 2f), HudTheme.RowHeight, HudTheme.SelectionBg);
+
+            Color textColor = selected ? HudTheme.SelectionText : HudTheme.NormalText;
+            Color valueColor = selected ? HudTheme.SelectionText : HudTheme.ValueText;
+
+            HudTheme.DrawCell(g, font, x, lineY, Rows[i], textColor);
+            HudTheme.DrawCell(g, font, x + ValueColumnOffset, lineY, GetValueLabel(i), valueColor);
+
+            lineY += HudTheme.RowHeight;
         }
 
-        g.DrawText("Enter ou ←→: alternar caos / ajustar valor", x, y + height - 16f, Color.Gainsboro, font);
+        HudTheme.DrawTabHint(g, font, x, y, height, "←→ ajustar     Enter alternar liga/desliga");
+    }
+
+    public static float MeasureHeight()
+    {
+        return (Rows.Length * HudTheme.RowHeight) + HudTheme.TabHintHeight;
     }
 
     private string GetValueLabel(int index)
@@ -59,7 +74,7 @@ public class SettingsTab : IHudTab
         switch (index)
         {
             case 0: return ModSettings.ChaosEnabled ? "Ativado" : "Desativado";
-            case 1: return ModSettings.ChaosRadius.ToString("0") + "m";
+            case 1: return ModSettings.ChaosRadius.ToString("0") + " m";
             case 2: return ModSettings.ChaosTurboPower.ToString("0");
             default: return string.Empty;
         }

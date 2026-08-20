@@ -65,11 +65,14 @@
   <ItemGroup>
     <Compile Include="ResetVehicleScript.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Config\ModPaths.cs" />
     <Compile Include="Config\ModLog.cs" />
     <Compile Include="Config\ModSettings.cs" />
     <Compile Include="Keybinds\KeybindRegistry.cs" />
     <Compile Include="Vehicles\VehicleCatalog.cs" />
     <Compile Include="Hud\IHudTab.cs" />
+    <Compile Include="Hud\TextMeasure.cs" />
+    <Compile Include="Hud\HudTheme.cs" />
     <Compile Include="Hud\HudManager.cs" />
     <Compile Include="Hud\CommandsTab.cs" />
     <Compile Include="Hud\VehicleSpawnTab.cs" />

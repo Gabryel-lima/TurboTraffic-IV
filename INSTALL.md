@@ -196,7 +196,7 @@ Para remover o mod:
 - `MyLoader.pdb`
 - `ResetHandling.net.dll`
 - `ResetHandling.net.pdb`
-- `scripts/ResetHandling.ini` (arquivo de configuração do HUD, criado pelo mod na primeira execução)
+- `Documentos\TurboTraffic-IV\` (pasta com o arquivo de configuração do HUD e o log de diagnóstico, criada pelo mod na primeira execução — fica fora da pasta do jogo)
 - `TurboTrafficIV_manifest.json` (se existir)
 
 ## 📞 Suporte

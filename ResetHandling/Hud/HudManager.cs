@@ -13,14 +13,54 @@ public enum HudTab
 
 public class HudManager
 {
-    private const float PanelX = 20f;
-    private const float PanelY = 20f;
-    private const float PanelWidth = 360f;
-    private const float PanelHeight = 300f;
-    private const float TabHeight = 24f;
-    private const float TabWidth = 116f;
+    // ---- Métrica do painel -------------------------------------------------
+    // Todas as coordenadas aqui são canto superior esquerdo, em pixels.
+    //
+    // ATENÇÃO: os retângulos de fundo são desenhados por HudTheme.FillRect, e
+    // não por g.DrawRectangle direto — a API do jogo recebe o CENTRO do
+    // retângulo, não o canto. Era essa a origem do painel/abas desalinhados em
+    // relação ao texto: o texto (DrawText) usa o canto, os retângulos usavam o
+    // centro, e os dois nunca se encontravam. Ver HudTheme.FillRect.
+    private const float PanelX = 24f;
+    private const float PanelY = 24f;
+    private const float PanelWidth = 720f;
+    private const float PanelHeight = 600f;
+
+    private const float TitleBarHeight = 56f;
+    private const float TabsGap = 12f;
+    private const float TabHeight = 42f;
+    private const float TabWidth = 224f;
+    private const float TabInnerPadding = 8f;
+    private const float SeparatorGap = 10f;
+    private const float ContentTopGap = 14f;
+    private const float FooterHeight = 34f;
+    private const float SidePadding = 22f;
+    private const float TabsLeftPadding = 16f;
+
+    // Precisa bater com o tamanho usado em EnsureFonts() — usado por
+    // TextMeasure para estimar a largura real do rótulo ao centralizar.
+    private const float TabFontSizePx = 20f;
+
+    // Derivadas (mantidas como propriedades para a verificação de layout poder
+    // conferir os mesmos números que o desenho usa).
+    private static float TabsY { get { return PanelY + TitleBarHeight + TabsGap; } }
+    private static float SeparatorY { get { return TabsY + TabHeight + SeparatorGap; } }
+    private static float ContentY { get { return SeparatorY + ContentTopGap; } }
+    private static float ContentBottom { get { return PanelY + PanelHeight - FooterHeight; } }
+    private static float ContentHeight { get { return ContentBottom - ContentY; } }
+    private static float ContentX { get { return PanelX + SidePadding; } }
+    private static float ContentWidth { get { return PanelWidth - (SidePadding * 2f); } }
 
     private static readonly string[] TabNames = { "Comandos", "Spawn de Veículos", "Configurações" };
+
+    // Paleta — fundos sólidos (alpha 255): um fundo translúcido deixa o
+    // contraste do texto refém da cor da cena por trás (rua clara, céu, etc).
+    private static readonly Color PanelBg = Color.FromArgb(255, 18, 18, 20);
+    private static readonly Color TitleBg = Color.FromArgb(255, 176, 28, 28);
+    private static readonly Color TabActiveBg = Color.FromArgb(255, 235, 140, 0);
+    private static readonly Color TabIdleBg = Color.FromArgb(255, 54, 54, 58);
+    private static readonly Color SeparatorColor = Color.FromArgb(255, 235, 140, 0);
+    private static readonly Color HintColor = Color.Gainsboro;
 
     // Fontes são criadas na primeira vez que o HUD é desenhado, e não no
     // construtor: elas dependem do device Direct3D, que pode ainda não estar
@@ -51,6 +91,10 @@ public class HudManager
         IsOpen = false;
     }
 
+    // Esquema de navegação: Tab/Shift+Tab trocam de aba, ↑/↓ navegam a lista,
+    // ←/→ ajustam o valor do item selecionado, Enter confirma e Espaço é a
+    // ação secundária. O rodapé e a aba Comandos anunciam o Tab explicitamente,
+    // porque sem essa dica o jogador não descobre a troca de aba.
     public void HandleKey(Keys key, bool shift)
     {
         if (!IsOpen)
@@ -106,10 +150,10 @@ public class HudManager
         if (_fontsReady)
             return;
 
-        _titleFont = new Font(16f, FontScaling.Pixel, true, false) { Color = Color.White, Effect = FontEffect.Edge };
-        _tabFont = new Font(12f, FontScaling.Pixel, true, false) { Effect = FontEffect.Edge };
-        _bodyFont = new Font(13f, FontScaling.Pixel) { Color = Color.White, Effect = FontEffect.Edge };
-        _hintFont = new Font(11f, FontScaling.Pixel) { Color = Color.Gainsboro, Effect = FontEffect.Edge };
+        _titleFont = new Font(30f, FontScaling.Pixel, true, false) { Color = Color.White, Effect = FontEffect.Edge };
+        _tabFont = new Font(20f, FontScaling.Pixel, true, false) { Effect = FontEffect.Edge };
+        _bodyFont = new Font(22f, FontScaling.Pixel) { Color = Color.White, Effect = FontEffect.Edge };
+        _hintFont = new Font(16f, FontScaling.Pixel) { Color = HintColor, Effect = FontEffect.Edge };
         _fontsReady = true;
 
         ModLog.Write("Fontes do HUD criadas.");
@@ -135,26 +179,31 @@ public class HudManager
                 _loggedFirstDraw = true;
             }
 
-            g.DrawRectangle(PanelX, PanelY, PanelWidth, PanelHeight, Color.FromArgb(215, 15, 15, 15));
-            g.DrawRectangle(PanelX, PanelY, PanelWidth, 28f, Color.FromArgb(235, 180, 30, 30));
-            g.DrawText("TurboTraffic-IV", PanelX + 10f, PanelY + 5f, Color.White, _titleFont);
+            // Fundo + barra de título
+            HudTheme.FillRect(g, PanelX, PanelY, PanelWidth, PanelHeight, PanelBg);
+            HudTheme.FillRect(g, PanelX, PanelY, PanelWidth, TitleBarHeight, TitleBg);
+            HudTheme.DrawCell(g, _titleFont, PanelX + SidePadding, PanelY, TitleBarHeight, "TurboTraffic-IV", Color.White);
 
-            float tabY = PanelY + 34f;
+            // Abas — texto centralizado por cálculo manual (largura medida via
+            // TextMeasure, altura via Font.GetLineHeight), não via
+            // RectangleF/TextAlignment.
             for (int i = 0; i < TabNames.Length; i++)
             {
-                float tabX = PanelX + 10f + (i * TabWidth);
+                float tabX = PanelX + TabsLeftPadding + (i * TabWidth);
+                float tabW = TabWidth - TabInnerPadding;
                 bool active = (int)_activeTab == i;
-                Color bg = active ? Color.FromArgb(255, 235, 140, 0) : Color.FromArgb(160, 70, 70, 70);
-                g.DrawRectangle(tabX, tabY, TabWidth - 6f, TabHeight, bg);
-                g.DrawText(TabNames[i], tabX + 4f, tabY + 4f, active ? Color.Black : Color.White, _tabFont);
+                HudTheme.FillRect(g, tabX, TabsY, tabW, TabHeight, active ? TabActiveBg : TabIdleBg);
+                HudTheme.DrawCentered(g, _tabFont, tabX, TabsY, tabW, TabHeight, TabFontSizePx, true,
+                    TabNames[i], active ? Color.Black : Color.White);
             }
 
-            float contentY = tabY + TabHeight + 10f;
-            float contentHeight = (PanelY + PanelHeight) - contentY - 22f;
-            CurrentTab.Draw(g, _bodyFont, PanelX + 12f, contentY, PanelWidth - 24f, contentHeight);
+            // Linha de acento separando abas do conteúdo
+            HudTheme.FillRect(g, PanelX + TabsLeftPadding, SeparatorY, PanelWidth - (TabsLeftPadding * 2f), 2f, SeparatorColor);
 
-            g.DrawText("Tab: trocar aba   Setas: navegar   Esc: fechar",
-                PanelX + 10f, PanelY + PanelHeight - 18f, Color.Gainsboro, _hintFont);
+            CurrentTab.Draw(g, _bodyFont, ContentX, ContentY, ContentWidth, ContentHeight);
+
+            HudTheme.DrawCell(g, _hintFont, PanelX + SidePadding, ContentBottom, FooterHeight,
+                "Tab trocar aba     ↑↓ navegar     ←→ ajustar     Enter confirmar     Esc fechar", HintColor);
         }
         catch (System.Exception ex)
         {

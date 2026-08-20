@@ -499,6 +499,30 @@ function Remove-OrphanedModFiles {
     }
 }
 
+function Copy-ModFile {
+    # Copia sempre sobrescrevendo o destino, mesmo que o arquivo existente
+    # esteja marcado como somente-leitura (comum em arquivos vindos de uma
+    # instalação anterior do jogo) — sem isso, Copy-Item -Force pode falhar
+    # silenciosamente e deixar o binário antigo no lugar.
+    param([string]$SourcePath, [string]$DestPath)
+
+    $existed = Test-Path -LiteralPath $DestPath
+    if ($existed) {
+        try {
+            $item = Get-Item -LiteralPath $DestPath -Force
+            if ($item.Attributes -band [System.IO.FileAttributes]::ReadOnly) {
+                $item.Attributes = $item.Attributes -band (-bnot [System.IO.FileAttributes]::ReadOnly)
+            }
+        } catch { }
+    }
+
+    if ($PSCmdlet.ShouldProcess($DestPath, 'Copiar arquivo')) {
+        Copy-Item -LiteralPath $SourcePath -Destination $DestPath -Force
+        $verb = if ($existed) { 'substituído' } else { 'novo' }
+        Write-Log ("  OK  {0} ({1})" -f (Split-Path $DestPath -Leaf), $verb) 'OK'
+    }
+}
+
 function Install-Mod {
     param([string]$TargetGamePath)
 
@@ -519,11 +543,7 @@ function Install-Mod {
     # Passo 1: Loader + dependências para a raiz do jogo
     Write-Log 'Copiando arquivos de Main_GTAIV_Folder/ para o diretório do jogo...' 'STEP'
     Get-ChildItem -Path $MainFolder -File | ForEach-Object {
-        $dest = Join-Path $TargetGamePath $_.Name
-        if ($PSCmdlet.ShouldProcess($dest, 'Copiar arquivo')) {
-            Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
-            Write-Log "  OK  $($_.Name)" 'OK'
-        }
+        Copy-ModFile -SourcePath $_.FullName -DestPath (Join-Path $TargetGamePath $_.Name)
     }
 
     # Passo 2: pasta scripts
@@ -537,11 +557,7 @@ function Install-Mod {
 
     Write-Log 'Copiando arquivos de scripts/ para a pasta scripts/ do jogo...' 'STEP'
     Get-ChildItem -Path $ScriptsFolder -File | ForEach-Object {
-        $dest = Join-Path $gameScriptsPath $_.Name
-        if ($PSCmdlet.ShouldProcess($dest, 'Copiar arquivo')) {
-            Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
-            Write-Log "  OK  $($_.Name)" 'OK'
-        }
+        Copy-ModFile -SourcePath $_.FullName -DestPath (Join-Path $gameScriptsPath $_.Name)
     }
 
     # Verificação

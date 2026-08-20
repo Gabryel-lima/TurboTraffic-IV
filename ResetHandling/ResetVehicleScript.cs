@@ -1,5 +1,4 @@
 using GTA;
-using GTA.Native;
 using System;
 using System.Collections.Generic;
 using System.Windows.Forms;
@@ -23,10 +22,12 @@ public class NPCTurboBoost : Script
     private bool _drawingWarningShown;
     private bool _perFrameDrawingSeen;
     private int _ticksWithHudOpen;
+    private int _lastHeartbeatTime;
 
     public NPCTurboBoost()
     {
         ModLog.Write("---- TurboTraffic-IV iniciando ----");
+        ModLog.Write("Pasta de dados: " + ModPaths.DataFolder);
         ModSettings.Load();
 
         Tick += OnTick;
@@ -129,8 +130,11 @@ public class NPCTurboBoost : Script
 
             Vector3 boostedVel = speed + (forward * turboPower);
 
-            Function.Call("SET_CAR_VELOCITY", v, boostedVel.X, boostedVel.Y, boostedVel.Z);
-            Function.Call("SET_CAR_FORWARD_SPEED", v, boostedVel.Length());
+            // Usa as propriedades tipadas do wrapper em vez de Function.Call:
+            // o native "SET_CAR_VELOCITY" NÃO existe neste ScriptHook (GTA IV
+            // 1.2.0.59) e falhava a cada frame, enchendo o log de erros.
+            v.Velocity = boostedVel;
+            v.Speed = boostedVel.Length();
         }
     }
 
@@ -157,7 +161,10 @@ public class NPCTurboBoost : Script
             bool wasDown = _keysDownLastFrame.Contains(key);
 
             if (isDown && !wasDown)
+            {
+                ModLog.Write("Tecla detectada: " + key);
                 OnKeyPressed(key, shift);
+            }
 
             if (isDown)
                 _keysDownLastFrame.Add(key);
@@ -171,6 +178,12 @@ public class NPCTurboBoost : Script
         if (key == Keys.F1)
         {
             _hud.Toggle();
+
+            // Confirmação pelo texto nativo do jogo: não depende do hook de
+            // desenho, então distingue "a tecla não chegou" de "chegou mas o
+            // painel não foi desenhado".
+            Game.DisplayText(_hud.IsOpen ? "TurboTraffic-IV: HUD aberto" : "TurboTraffic-IV: HUD fechado", 1500);
+
             if (!_hud.IsOpen)
                 RestorePlayerControl();
             return;
@@ -226,7 +239,7 @@ public class NPCTurboBoost : Script
         if (_ticksWithHudOpen < 120)
             return;
 
-        Game.DisplayText("TurboTraffic-IV: o HUD grafico nao pode ser desenhado (hook Direct3D indisponivel). Veja scripts\\TurboTrafficIV.log", 8000);
+        Game.DisplayText("TurboTraffic-IV: o HUD grafico nao pode ser desenhado (evento de desenho nao disparou). Veja Documentos\\TurboTraffic-IV\\TurboTrafficIV.log", 8000);
         _drawingWarningShown = true;
         ModLog.Write("AVISO: PerFrameDrawing nunca disparou com o HUD aberto — hook Direct3D provavelmente indisponivel.");
     }
@@ -242,10 +255,28 @@ public class NPCTurboBoost : Script
         _hud.Draw(e.Graphics);
     }
 
+    // Registra periodicamente o estado real do script: responde, sem depender
+    // de nada em tela, se o tick roda, se a tecla F1 é enxergada pelo polling e
+    // se o evento de desenho por frame já disparou alguma vez.
+    private void WriteHeartbeat()
+    {
+        int now = Game.GameTime;
+        if (now - _lastHeartbeatTime < 5000)
+            return;
+
+        _lastHeartbeatTime = now;
+        ModLog.Write("heartbeat: tick=ok"
+            + " F1pressionado=" + Game.isKeyPressed(Keys.F1)
+            + " hudAberto=" + _hud.IsOpen
+            + " desenhoDisparou=" + _perFrameDrawingSeen
+            + " caos=" + ModSettings.ChaosEnabled);
+    }
+
     private void OnTick(object sender, EventArgs e)
     {
         try
         {
+            WriteHeartbeat();
             ShowTutorialIfNeeded();
             ProcessInput();
             WarnIfDrawingUnavailable();

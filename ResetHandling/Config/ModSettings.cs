@@ -3,7 +3,6 @@ using GTA;
 public static class ModSettings
 {
     private const string Category = "TurboTraffic";
-    private const string FilePath = "scripts\\ResetHandling.ini";
 
     public const float ChaosRadiusMin = 20.0f;
     public const float ChaosRadiusMax = 500.0f;
@@ -29,7 +28,7 @@ public static class ModSettings
 
         try
         {
-            _file = SettingsFile.Open(FilePath);
+            _file = SettingsFile.Open(ModPaths.SettingsFilePath);
             _file.Load();
 
             ChaosEnabled = _file.GetValueBool(Category, "ChaosEnabled", false);

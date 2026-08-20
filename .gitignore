@@ -142,3 +142,6 @@ ResetHandling/obj/
 !*.md
 !*.txt
 !Properties/AssemblyInfo.cs
+
+# Logs gerados pelo Install-TurboTrafficIV.ps1
+install-log-*.txt

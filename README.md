@@ -43,7 +43,7 @@ TurboTraffic-IV/
 │   └── ...
 └── ResetHandling/         # Código fonte C# do mod principal
     ├── ResetVehicleScript.cs  # Orquestrador: liga teclas, tick e desenho do HUD
-    ├── Config/                # Persistência das configurações (scripts/ResetHandling.ini)
+    ├── Config/                # Caminhos, log e persistência das configurações
     ├── Keybinds/               # Registro único das teclas do mod (usado pela aba Comandos)
     ├── Vehicles/                # Catálogo de veículos disponíveis para spawn
     ├── Hud/                     # HUD (painel + abas Comandos/Spawn/Configurações)
@@ -103,12 +103,14 @@ Enquanto o HUD está aberto, o controle do personagem fica travado, para que as 
 
 - **Tab** / **Shift+Tab**: troca de aba (Comandos → Spawn de Veículos → Configurações)
 - **↑ / ↓**: navega os itens da aba atual
-- **← / →**: na aba Configurações, ajusta o valor do parâmetro selecionado
-- **Espaço**: na aba Spawn de Veículos, alterna se o veículo spawna com você dentro ou fora dele
-- **Enter**: confirma (spawna o veículo selecionado / liga-desliga o caos no trânsito)
+- **← / →**: ajusta o valor do item selecionado (aba Configurações)
+- **Enter**: confirma — spawna o veículo selecionado, ou liga/desliga o caos no trânsito
+- **Espaço**: ação secundária — na aba Spawn, alterna se o veículo nasce com você dentro ou fora dele
 - **Esc**: fecha o HUD
 
-As configurações ajustadas na aba **Configurações** ficam salvas em `scripts\ResetHandling.ini`, dentro da pasta do jogo, e persistem entre sessões.
+Essas teclas ficam listadas dentro do próprio HUD, na aba **Comandos**, e o rodapé do painel repete o essencial: a troca de aba pelo **Tab** não é descoberta sozinha se não estiver escrita na tela.
+
+As configurações ajustadas na aba **Configurações** ficam salvas em `Documentos\TurboTraffic-IV\ResetHandling.ini` e persistem entre sessões. Elas ficam aí, e não na pasta do jogo, porque instalações em `C:\Program Files (x86)\...` só aceitam escrita com elevação — gravar lá falharia em silêncio.
 
 ## 📝 Créditos
 
@@ -144,7 +146,7 @@ Se o mod não funcionar:
 5. Se o instalador reclamar de arquivos ausentes, compile `ResetHandling.sln` (Release|x86) e `MyLoader.sln` (Release|Win32) antes de instalar
 6. Se o instalador travar dizendo que o jogo está em execução, feche o GTA IV e rode o instalador de novo
 7. Se a detecção automática não encontrar sua instalação (ex.: aparece "Múltiplas instalações" sem nenhuma listada), use `-GamePath` apontando para a pasta onde está o `GTAIV.exe`/`EFLC.exe` — o instalador também aceita a pasta um nível acima (ex. a pasta "Grand Theft Auto IV" da Complete Edition da Steam, que contém uma subpasta `GTAIV\`)
-8. Se o HUD não aparecer ao apertar F1, abra `scripts\TurboTrafficIV.log` na pasta do jogo: o mod registra ali se carregou, se as teclas chegaram e se o desenho por frame disparou
+8. Se o HUD não aparecer ao apertar F1: o mod mostra "TurboTraffic-IV: HUD aberto" com o texto nativo do jogo ao receber a tecla. Se esse texto aparece mas o painel não, o problema é no desenho; se nem o texto aparece, a tecla não chegou. Detalhes em `Documentos\TurboTraffic-IV\TurboTrafficIV.log`
 
 Para mais detalhes, consulte [INSTALL.md](INSTALL.md).
 
