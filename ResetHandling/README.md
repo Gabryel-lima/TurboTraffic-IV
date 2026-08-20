@@ -10,9 +10,9 @@ O ResetHandling modifica o comportamento dos veículos controlados por NPCs no G
 
 1. **Caos no Trânsito** (`ApplyTurboLogic`, chamado a cada frame)
    - Aplica velocidade turbo aos veículos controlados por NPCs
+   - **Começa desligado** (`ChaosEnabled` default `false`): só age depois que o jogador ligar pela aba **Configurações** do HUD
    - Raio de alcance e força de aceleração configuráveis pelo HUD (persistidos em `scripts\ResetHandling.ini`)
    - Nunca modifica o veículo do jogador, e ignora veículos estacionados (sem motorista)
-   - Pode ser ligado/desligado pela aba **Configurações** do HUD
 
 2. **HUD do mod (F1)** — painel desenhado no canto superior esquerdo com três abas:
    - **Comandos**: lista as teclas do mod (F1/F5/F6) e o que cada uma faz, lida diretamente de `KeybindRegistry`
@@ -25,7 +25,9 @@ O ResetHandling modifica o comportamento dos veículos controlados por NPCs no G
 
 5. **Explosão do Jogador (F5)**: cria uma explosão na posição atual do jogador e o mata, para consistência
 
-Tanto F1/F5/F6 quanto a navegação do HUD respondem ao evento `Script.KeyDown` (disparo único por tecla pressionada), não a um polling em `Tick` — segurar a tecla não repete a ação.
+Tanto F1/F5/F6 quanto a navegação do HUD usam **polling com detecção de borda** (`Game.isKeyPressed` comparado com o estado do frame anterior, em `ProcessInput`): a ação dispara uma vez por tecla pressionada, e segurar a tecla não repete. O evento `Script.KeyDown` existe na API mas não se mostrou confiável neste ambiente — o polling é o mecanismo comprovadamente entregue.
+
+Enquanto o HUD está aberto, `Player.CanControlCharacter` é mantido `false` para que as setas naveguem o menu sem mover o personagem; ao fechar, o controle é restaurado.
 
 ## 📁 Estrutura dos Arquivos
 
@@ -33,7 +35,8 @@ Tanto F1/F5/F6 quanto a navegação do HUD respondem ao evento `Script.KeyDown` 
 ResetHandling/
 ├── ResetVehicleScript.cs     # Orquestrador: liga Tick/KeyDown/PerFrameDrawing, mantém o comportamento existente (turbo/F5/F6/popup)
 ├── Config/
-│   └── ModSettings.cs        # Wrapper sobre GTA.SettingsFile — persiste ChaosEnabled/ChaosRadius/ChaosTurboPower em scripts\ResetHandling.ini
+│   ├── ModSettings.cs        # Wrapper sobre GTA.SettingsFile — persiste ChaosEnabled/ChaosRadius/ChaosTurboPower em scripts\ResetHandling.ini
+│   └── ModLog.cs             # Log de diagnóstico em scripts\TurboTrafficIV.log
 ├── Keybinds/
 │   └── KeybindRegistry.cs    # Lista única {tecla, rótulo, descrição} usada pelo roteamento de teclas e pela aba Comandos
 ├── Vehicles/
@@ -213,6 +216,17 @@ Troque `Keys.F5`/`Keys.F6` em `OnKeyDown` (`ResetVehicleScript.cs`) e atualize a
 ### Erro: "The type or namespace name 'GTA' could not be found"
 
 - Certifique-se de que `scripts\ScriptHookDotNet.dll` existe na raiz do repositório (ele já vem commitado); se foi removido, restaure-o do controle de versão.
+
+### O HUD não aparece ao apertar F1
+
+Abra `scripts\TurboTrafficIV.log` na pasta do jogo — o mod registra o carregamento, a abertura/fechamento do HUD e o primeiro disparo do desenho por frame. Interpretando o log:
+
+- Sem nenhuma linha: o `ResetHandling.net.dll` não foi carregado (confira a instalação e o ScriptHookDotNet)
+- Tem "Script carregado" mas nenhum "HUD aberto" ao apertar F1: a tecla não está chegando ao script
+- Tem "HUD aberto" mas nenhum "PerFrameDrawing disparou": o hook Direct3D não está ativo — o mod também avisa isso em tela com o texto nativo do jogo
+- Tem "Primeiro desenho do HUD executado" mas nada visível: problema de posicionamento/escala do desenho
+
+Detalhe de implementação relevante: `Graphics.Scaling` é definido explicitamente como `FontScaling.Pixel` em `HudManager.Draw` antes de qualquer desenho. Sem isso, as coordenadas podem ser interpretadas em unidades de tela (0..1) e o painel é desenhado inteiramente fora da área visível.
 
 ### O script não funciona no jogo
 

@@ -21,12 +21,28 @@ public static class ModSettings
 
     public static void Load()
     {
-        _file = SettingsFile.Open(FilePath);
-        _file.Load();
+        // Defaults usados caso o .ini ainda não exista. O caos no trânsito nasce
+        // DESLIGADO: o mod só passa a agir depois que o jogador ligar pelo HUD.
+        ChaosEnabled = false;
+        ChaosRadius = 120.0f;
+        ChaosTurboPower = 70.0f;
 
-        ChaosEnabled = _file.GetValueBool(Category, "ChaosEnabled", true);
-        ChaosRadius = Clamp(_file.GetValueFloat(Category, "ChaosRadius", 120.0f), ChaosRadiusMin, ChaosRadiusMax);
-        ChaosTurboPower = Clamp(_file.GetValueFloat(Category, "ChaosTurboPower", 70.0f), ChaosTurboPowerMin, ChaosTurboPowerMax);
+        try
+        {
+            _file = SettingsFile.Open(FilePath);
+            _file.Load();
+
+            ChaosEnabled = _file.GetValueBool(Category, "ChaosEnabled", false);
+            ChaosRadius = Clamp(_file.GetValueFloat(Category, "ChaosRadius", 120.0f), ChaosRadiusMin, ChaosRadiusMax);
+            ChaosTurboPower = Clamp(_file.GetValueFloat(Category, "ChaosTurboPower", 70.0f), ChaosTurboPowerMin, ChaosTurboPowerMax);
+        }
+        catch (System.Exception ex)
+        {
+            _file = null;
+            ModLog.WriteException("ModSettings.Load", ex);
+        }
+
+        ModLog.Write("Config carregada: caos=" + ChaosEnabled + " raio=" + ChaosRadius + " forca=" + ChaosTurboPower);
     }
 
     public static void ToggleChaosEnabled()
@@ -52,10 +68,17 @@ public static class ModSettings
         if (_file == null)
             return;
 
-        _file.SetValue(Category, "ChaosEnabled", ChaosEnabled);
-        _file.SetValue(Category, "ChaosRadius", ChaosRadius);
-        _file.SetValue(Category, "ChaosTurboPower", ChaosTurboPower);
-        _file.Save();
+        try
+        {
+            _file.SetValue(Category, "ChaosEnabled", ChaosEnabled);
+            _file.SetValue(Category, "ChaosRadius", ChaosRadius);
+            _file.SetValue(Category, "ChaosTurboPower", ChaosTurboPower);
+            _file.Save();
+        }
+        catch (System.Exception ex)
+        {
+            ModLog.WriteException("ModSettings.Persist", ex);
+        }
     }
 
     private static float Clamp(float value, float min, float max)

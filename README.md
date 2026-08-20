@@ -8,7 +8,7 @@ O TurboTraffic-IV é um mod que modifica o comportamento dos veículos controlad
 
 ### Funcionalidades
 
-- **Caos no Trânsito**: Aplica velocidade turbo aos veículos controlados por NPCs dentro de um raio configurável ao redor do jogador — pode ser ligado/desligado e ajustado pelo HUD
+- **Caos no Trânsito**: Aplica velocidade turbo aos veículos controlados por NPCs dentro de um raio configurável ao redor do jogador. **Vem desligado por padrão** — ligue pela aba Configurações do HUD (a escolha fica salva entre sessões)
 - **HUD do Mod (F1)**: painel no canto superior esquerdo da tela com 3 abas:
   - **Comandos**: legenda de todas as teclas do mod e o que cada uma faz
   - **Spawn de Veículos**: escolha entre dezenas de veículos organizados por categoria e spawne dentro ou fora do carro
@@ -95,7 +95,9 @@ Para instruções detalhadas de instalação manual, consulte o arquivo [INSTALL
 - **F5**: Explode o jogador na posição atual
 - **F6**: Eleva todos os peds (incluindo o jogador) em 1 unidade
 
-O caos no trânsito (turbo nos veículos de NPCs) é aplicado automaticamente quando você está próximo deles, mas pode ser ligado/desligado e ajustado na aba **Configurações** do HUD.
+O caos no trânsito (turbo nos veículos de NPCs) começa **desligado**: abra o HUD com F1, vá até a aba **Configurações** e ligue. A partir daí ele é aplicado automaticamente aos veículos próximos, e a escolha fica salva para as próximas sessões.
+
+Enquanto o HUD está aberto, o controle do personagem fica travado, para que as setas naveguem o menu sem também mover o jogador. Ao fechar o HUD (Esc ou F1), o controle volta ao normal.
 
 ### Navegando no HUD (F1)
 
@@ -142,6 +144,7 @@ Se o mod não funcionar:
 5. Se o instalador reclamar de arquivos ausentes, compile `ResetHandling.sln` (Release|x86) e `MyLoader.sln` (Release|Win32) antes de instalar
 6. Se o instalador travar dizendo que o jogo está em execução, feche o GTA IV e rode o instalador de novo
 7. Se a detecção automática não encontrar sua instalação (ex.: aparece "Múltiplas instalações" sem nenhuma listada), use `-GamePath` apontando para a pasta onde está o `GTAIV.exe`/`EFLC.exe` — o instalador também aceita a pasta um nível acima (ex. a pasta "Grand Theft Auto IV" da Complete Edition da Steam, que contém uma subpasta `GTAIV\`)
+8. Se o HUD não aparecer ao apertar F1, abra `scripts\TurboTrafficIV.log` na pasta do jogo: o mod registra ali se carregou, se as teclas chegaram e se o desenho por frame disparou
 
 Para mais detalhes, consulte [INSTALL.md](INSTALL.md).
 
