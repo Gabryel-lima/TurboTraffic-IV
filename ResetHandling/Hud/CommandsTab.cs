@@ -15,7 +15,7 @@ public class CommandsTab : IHudTab
         new[] { "← / →", "Ajustar o valor selecionado" },
         new[] { "Enter", "Confirmar (spawnar / alternar)" },
         new[] { "Espaço", "Ação secundária da aba" },
-        new[] { "Esc", "Fechar o HUD" },
+        new[] { "F1", "Abrir/Fechar o HUD" },
     };
 
     private const float DescColumnOffset = 230f;
