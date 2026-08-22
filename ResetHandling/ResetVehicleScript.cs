@@ -17,7 +17,33 @@ public class NPCTurboBoost : Script
 
     private readonly HudManager _hud = new HudManager();
     private readonly HashSet<Keys> _keysDownLastFrame = new HashSet<Keys>();
-    private readonly HashSet<Vehicle> _invinciblizedVehicles = new HashSet<Vehicle>();
+    // Veículos cujas flags de dano foram alteradas por este mod — precisam ser
+    // devolvidas ao padrão quando saem do raio ou o efeito é desligado.
+    private readonly HashSet<Vehicle> _tweakedVehicles = new HashSet<Vehicle>();
+
+    // Última combinação de dano já aplicada — usada para não reemitir os
+    // mesmos natives em todo frame quando nada mudou. Começa no padrão do
+    // jogo (dano normal, amassa normal).
+    private bool _appliedInvincible;
+    private bool _appliedCrumple = true;
+
+    // Motoristas com a IA de trajeto desligada pelo Modo Solto, e o instante
+    // da última limpeza de tarefa de cada um — precisam ter a tarefa de
+    // trânsito devolvida quando o modo acaba.
+    private readonly Dictionary<Ped, int> _freedDrivers = new Dictionary<Ped, int>();
+
+    // Intervalo entre reemissões do "esqueça o trajeto". Curto o bastante para
+    // a IA nunca retomar o volante, longo o bastante para o motorista chegar a
+    // reagir entre uma limpeza e outra.
+    private const int FreeRideRetaskIntervalMs = 400;
+
+    // Varredura de detritos: cara demais para rodar todo frame, e não precisa —
+    // sucata não aparece de um frame para o outro.
+    private const int DebrisSweepIntervalMs = 750;
+    private const float DebrisMinDistance = 30.0f;
+    private const int DebrisMaxDeletionsPerSweep = 12;
+
+    private int _lastDebrisSweepTime;
 
     private bool _tutorialShown;
     private bool _drawingWarningShown;
@@ -125,6 +151,222 @@ public class NPCTurboBoost : Script
         v.Speed = targetSpeed;
     }
 
+    // Modo Ímã: o trânsito converge no jogador. Mecânica deliberadamente
+    // ortogonal às outras duas — este modo NÃO decide velocidade, só reescreve
+    // a DIREÇÃO. Por isso roda por último em ApplyTurboLogic: Legado e
+    // Velocidade Máxima definem o "quão rápido", o Ímã define o "para onde",
+    // e os três compõem sem que nenhum precise conhecer o outro.
+    private void ApplyMagnetMode(Vehicle v)
+    {
+        Vector3 toPlayer = Player.Character.Position - v.Position;
+
+        // Zera o componente vertical: perseguir a altura do jogador faz o
+        // carro arar o asfalto ou mergulhar de viadutos em vez de dirigir.
+        toPlayer.Z = 0.0f;
+
+        // Praticamente em cima do jogador — normalizar aqui daria uma direção
+        // instável, com o carro tremendo em volta do alvo.
+        if (toPlayer.Length() < 1.0f)
+            return;
+
+        Vector3 direction = Vector3.Normalize(toPlayer);
+
+        // Herda a velocidade que o veículo já tem (possivelmente vinda de outro
+        // modo), com um piso para que carro parado também seja puxado.
+        float speed = v.Speed;
+        float pull = ModSettings.ChaosMagnetPull;
+
+        if (speed < pull)
+            speed = pull;
+
+        // Só Velocity, sem tocar em Speed: Speed empurra ao longo do eixo
+        // FRONTAL do carro, o que jogaria o veículo para onde ele está virado
+        // e desfaria justamente a direção que este modo acabou de calcular.
+        v.Velocity = direction * speed;
+    }
+
+    // Modo Solto: empurra o carro DEPOIS de tirar o motorista do trajeto, para
+    // ver o veículo se comportar só pela física. É a mecânica mais distinta das
+    // outras — os outros modos brigam com a IA a cada frame (ela corrige a
+    // direção, freia nas curvas, respeita a pista); aqui a IA sai de cena e o
+    // impulso é a única coisa que age sobre o carro.
+    private void ApplyFreeRideMode(Vehicle v, Ped driver)
+    {
+        ReleaseDriverAi(driver);
+
+        // Impulso puramente ADITIVO no vetor, sem passar por Speed. Essa é a
+        // diferença que dá o comportamento "solto": Speed recoloca o carro no
+        // eixo frontal todo frame, matando o componente lateral. Preservando o
+        // vetor inteiro, o carro deriva, roda e escorrega de verdade.
+        v.Velocity = v.Velocity + (v.Direction * ModSettings.ChaosFreeRidePush);
+    }
+
+    // Desliga o "pathing" do motorista sem apagar o motorista.
+    private void ReleaseDriverAi(Ped driver)
+    {
+        int now = Game.GameTime;
+        int lastClear;
+        bool known = _freedDrivers.TryGetValue(driver, out lastClear);
+
+        if (!known)
+        {
+            // Isto é o que faz o motorista continuar existindo: no primeiro
+            // impacto forte ele atravessava o para-brisa e ficava para trás na
+            // rua, e o carro seguia voando vazio. Preso ao banco, ele vai junto.
+            driver.WillFlyThroughWindscreen = false;
+            driver.CanBeKnockedOffBike = false;
+            driver.Task.AlwaysKeepTask = false;
+        }
+
+        if (!known || now - lastClear >= FreeRideRetaskIntervalMs)
+        {
+            // Limpar a tarefa periodicamente, em vez de bloquear os eventos do
+            // ped de uma vez (BlockPermanentEvents), é o que o mantém vivo como
+            // personagem: bloqueado ele vira estátua e não reage a nada. Assim
+            // ele entra em pânico, tenta agarrar o volante e tenta pular fora
+            // entre uma limpeza e outra — e a limpeza seguinte cancela a fuga
+            // antes que ela termine, sem nunca deixar a IA de trajeto voltar.
+            driver.Task.ClearAllImmediately();
+            _freedDrivers[driver] = now;
+        }
+    }
+
+    // Devolve o motorista ao trânsito normal. Sem isto, desligar o modo (ou
+    // simplesmente se afastar) deixaria a cidade cheia de motoristas
+    // catatônicos parados no meio da rua — mesmo tipo de vazamento de estado
+    // que as flags de dano tinham.
+    private void RestoreDriverAi(Ped driver)
+    {
+        driver.BlockPermanentEvents = false;
+        driver.WillFlyThroughWindscreen = true;
+        driver.CanBeKnockedOffBike = true;
+        driver.Task.ClearAllImmediately();
+
+        if (driver.isInVehicle())
+            driver.Task.CruiseWithVehicle(driver.CurrentVehicle, 20.0f, true);
+        else
+            driver.Task.WanderAround();
+    }
+
+    private void RestoreFreedDriversNotTouched(HashSet<Ped> touchedThisTick)
+    {
+        if (_freedDrivers.Count == 0)
+            return;
+
+        var stale = new List<Ped>();
+
+        foreach (Ped p in _freedDrivers.Keys)
+        {
+            if (touchedThisTick.Contains(p))
+                continue;
+
+            stale.Add(p);
+
+            if (p != null && p.Exists() && !p.isDead)
+                RestoreDriverAi(p);
+        }
+
+        foreach (Ped p in stale)
+            _freedDrivers.Remove(p);
+    }
+
+    private void RestoreAllFreedDrivers()
+    {
+        if (_freedDrivers.Count == 0)
+            return;
+
+        foreach (Ped p in _freedDrivers.Keys)
+        {
+            if (p != null && p.Exists() && !p.isDead)
+                RestoreDriverAi(p);
+        }
+
+        _freedDrivers.Clear();
+    }
+
+    // Otimização: sucata fora do campo de visão é apagada para liberar vagas de
+    // tráfego. O jogo só mantém um número limitado de veículos ativos — com as
+    // ruas entupidas de carcaças ele para de spawnar trânsito novo, e o fluxo
+    // constante de veículos (que é o que faz graça) seca. Nada some na tela do
+    // jogador: só é candidato o que ele não está olhando.
+    private void CleanupOffscreenDebris()
+    {
+        if (!ModSettings.ChaosDebrisCleanup)
+            return;
+
+        int now = Game.GameTime;
+        if (now - _lastDebrisSweepTime < DebrisSweepIntervalMs)
+            return;
+
+        _lastDebrisSweepTime = now;
+
+        Vehicle playerVeh = null;
+        bool playerInVehicle = Player.Character.isInVehicle();
+
+        if (playerInVehicle)
+            playerVeh = Player.Character.CurrentVehicle;
+
+        Vector3 playerPos = Player.Character.Position;
+        int deleted = 0;
+
+        foreach (Vehicle v in World.GetAllVehicles())
+        {
+            if (deleted >= DebrisMaxDeletionsPerSweep)
+                break;
+
+            if (v == null || !v.Exists())
+                continue;
+
+            if (playerInVehicle && v == playerVeh)
+                continue;
+
+            if (v.isRequiredForMission)
+                continue;
+
+            // A regra central: nada desaparece em cena.
+            if (v.isOnScreen)
+                continue;
+
+            // Margem extra além da tela: um carro logo atrás do jogador pode
+            // voltar ao campo de visão num giro de câmera, e sumir bem na hora
+            // em que ele se vira é pior que a carcaça parada.
+            if (playerPos.DistanceTo(v.Position) < DebrisMinDistance)
+                continue;
+
+            if (!IsDebris(v))
+                continue;
+
+            // O motorista morto ia ficar boiando no ar depois que o carro
+            // some — solta o ped junto para o jogo recolher os dois.
+            Ped driver = v.GetPedOnSeat(VehicleSeat.Driver);
+            if (driver != null && driver.Exists())
+            {
+                _freedDrivers.Remove(driver);
+                driver.NoLongerNeeded();
+            }
+
+            _tweakedVehicles.Remove(v);
+            v.Delete();
+            deleted++;
+        }
+
+        if (deleted > 0)
+            ModLog.Write("Detritos removidos fora do campo de visao: " + deleted);
+    }
+
+    private bool IsDebris(Vehicle v)
+    {
+        // Sucata de verdade: carcaça que não anda mais, capotada, pegando fogo
+        // ou já destruída. Carro saudável e parado NÃO conta — senão o veículo
+        // que o jogador acabou de spawnar e estacionou sumiria pelas costas
+        // dele, e a limpeza viraria um ladrão de carros.
+        if (!v.isDriveable || v.isUpsideDown || v.isOnFire || v.Health <= 0)
+            return true;
+
+        Ped driver = v.GetPedOnSeat(VehicleSeat.Driver);
+        return driver != null && driver.Exists() && driver.isDead;
+    }
+
     private void ApplyTurboLogic()
     {
         Vehicle playerVeh = null;
@@ -136,10 +378,10 @@ public class NPCTurboBoost : Script
         float radius = ModSettings.ChaosRadius;
         bool legacyWanted = ModSettings.ChaosEnabled;
         bool maxSpeedWanted = ModSettings.ChaosMaxSpeedModeEnabled;
-        bool invincibleWanted = ModSettings.ChaosInvincible;
-        bool crumpleWanted = ModSettings.ChaosCrumple;
+        bool magnetWanted = ModSettings.ChaosMagnetModeEnabled;
+        bool freeRideWanted = ModSettings.ChaosFreeRideModeEnabled;
 
-        var touchedThisTick = new HashSet<Vehicle>();
+        var freedThisTick = new HashSet<Ped>();
 
         foreach (Vehicle v in World.GetAllVehicles())
         {
@@ -168,65 +410,146 @@ public class NPCTurboBoost : Script
             if (v.isRequiredForMission || driver.isRequiredForMission)
                 continue;
 
-            // Não turbar veículo capotado/fora das rodas.
-            if (v.isUpsideDown || !v.isOnAllWheels)
+            // Não turbar veículo capotado. NÃO exigir isOnAllWheels aqui: o
+            // Modo Legado é cumulativo e só escala se for reaplicado a cada
+            // tick — e o primeiro empurrão já tira as rodas do chão, então
+            // exigir "nas quatro rodas" cancelava todos os empurrões
+            // seguintes e matava justamente o efeito original do modo.
+            if (v.isUpsideDown)
                 continue;
 
-            // Cada modo é aplicado por um método próprio que desconhece o
-            // outro — evita que a mecânica de um vaze para o outro. A ordem
-            // (Legado antes de Velocidade Máxima) é a composição combinada.
-            bool touchedByAnyMode = false;
-
+            // Cada modo é aplicado por um método próprio que desconhece os
+            // outros — evita que a mecânica de um vaze para o outro. A ordem
+            // é a composição combinada: Legado, Velocidade Máxima e Solto
+            // mexem na velocidade; o Ímã, por último, redireciona o resultado.
+            // Combinar Ímã com Solto dá carros sem IA sendo arrastados até o
+            // jogador; Solto sozinho é o carro entregue à física pura.
             if (legacyWanted)
-            {
                 ApplyLegacyBoost(v);
-                touchedByAnyMode = true;
-            }
 
             if (maxSpeedWanted)
-            {
                 ApplyMaxSpeedMode(v);
-                touchedByAnyMode = true;
+
+            if (freeRideWanted)
+            {
+                ApplyFreeRideMode(v, driver);
+                freedThisTick.Add(driver);
             }
 
-            // Nenhum modo tocou este veículo (ambos desligados) — não marca
-            // como "touched" nem aplica dano, para não confundir bookkeeping
-            // de um modo com o de outro.
-            if (!touchedByAnyMode)
+            if (magnetWanted)
+                ApplyMagnetMode(v);
+        }
+
+        // Motorista que saiu do raio, ou o modo inteiro desligado: a IA volta.
+        if (freeRideWanted)
+            RestoreFreedDriversNotTouched(freedThisTick);
+        else
+            RestoreAllFreedDrivers();
+    }
+
+    // Dano/invencibilidade é uma passada PRÓPRIA, separada do turbo: roda todo
+    // tick e não depende de nenhum modo de movimento estar ligado. Antes as
+    // flags eram aplicadas dentro do laço do turbo, então ligar só "Veículos
+    // invencíveis" no HUD não fazia absolutamente nada — o laço nem era
+    // chamado. Também não exige NPC ao volante: carro estacionado no raio
+    // igualmente fica invencível, que é o que o jogador espera ao testar.
+    private void ApplyDamageFlags()
+    {
+        bool invincibleWanted = ModSettings.ChaosInvincible;
+        bool crumpleWanted = ModSettings.ChaosCrumple;
+
+        // "Não invencível + amassa" é exatamente o padrão do jogo: não há nada
+        // a impor, só a devolver para quem já foi alterado antes.
+        if (!invincibleWanted && crumpleWanted)
+        {
+            _appliedInvincible = false;
+            _appliedCrumple = true;
+            RestoreAllTweakedVehicles();
+            return;
+        }
+
+        bool settingsChanged = invincibleWanted != _appliedInvincible || crumpleWanted != _appliedCrumple;
+
+        Vehicle playerVeh = null;
+        bool playerInVehicle = Player.Character.isInVehicle();
+
+        if (playerInVehicle)
+            playerVeh = Player.Character.CurrentVehicle;
+
+        float radius = ModSettings.ChaosRadius;
+        var touchedThisTick = new HashSet<Vehicle>();
+
+        foreach (Vehicle v in World.GetAllVehicles())
+        {
+            if (v == null || !v.Exists())
                 continue;
 
+            if (playerInVehicle && v == playerVeh)
+                continue;
+
+            if (Player.Character.Position.DistanceTo(v.Position) > radius)
+                continue;
+
+            if (v.isRequiredForMission)
+                continue;
+
+            // Reemitir os mesmos natives a cada frame para o mesmo veículo é
+            // desperdício puro (são 4 chamadas por carro, por frame). Só
+            // reaplica quem ainda não foi tocado ou quando a configuração
+            // mudou desde a última aplicação.
+            if (!settingsChanged && _tweakedVehicles.Contains(v))
+            {
+                touchedThisTick.Add(v);
+                continue;
+            }
+
+            ApplyDamageState(v, invincibleWanted, crumpleWanted);
             touchedThisTick.Add(v);
-
-            // Dano é global e independente entre si — "invencível" e
-            // "amassar" não dependem um do outro. As flags são recalculadas
-            // aqui TODO tick a partir das configurações atuais, então uma
-            // mudança no HUD reflete imediatamente, mesmo que o veículo
-            // continue no raio (não fica preso num estado antigo).
-            v.CanBeDamaged = !invincibleWanted;
-            v.CanTiresBurst = !invincibleWanted;
-            v.CanBeVisiblyDamaged = crumpleWanted;
-
-            if (invincibleWanted || !crumpleWanted)
-                _invinciblizedVehicles.Add(v);
-            else
-                _invinciblizedVehicles.Remove(v);
         }
+
+        _appliedInvincible = invincibleWanted;
+        _appliedCrumple = crumpleWanted;
 
         RestoreVehiclesNotTouched(touchedThisTick);
     }
 
-    // As flags de dano (CanBeDamaged etc.) são persistentes — o jogo não as
-    // reseta sozinho. Qualquer veículo marcado invencível que saiu do raio,
-    // deixou de existir, ou não passa mais pelos guards (virou mission car,
-    // capotou) precisa ter o dano normal restaurado aqui.
+    private void ApplyDamageState(Vehicle v, bool invincible, bool crumple)
+    {
+        // CanBeDamaged sozinho NÃO blinda um carro em GTA IV: ele corta o dano
+        // de "saúde", mas colisão, fogo e explosão continuam destruindo o
+        // veículo — era por isso que ligar "Veículos invencíveis" parecia não
+        // fazer efeito. Quem realmente blinda é SET_CAR_PROOFS, exposto aqui
+        // como MakeProofTo(balas, fogo, explosões, colisões, corpo a corpo).
+        v.MakeProofTo(invincible, invincible, invincible, invincible, invincible);
+        v.CanBeDamaged = !invincible;
+        v.CanTiresBurst = !invincible;
+
+        // Carro invencível que continua amassando fica visualmente incoerente
+        // (lataria destruída, saúde intacta): invencível manda na deformação.
+        v.CanBeVisiblyDamaged = !invincible && crumple;
+
+        _tweakedVehicles.Add(v);
+    }
+
+    private void RestoreVehicleDamageDefaults(Vehicle v)
+    {
+        v.MakeProofTo(false, false, false, false, false);
+        v.CanBeDamaged = true;
+        v.CanBeVisiblyDamaged = true;
+        v.CanTiresBurst = true;
+    }
+
+    // As flags de dano são persistentes — o jogo não as reseta sozinho.
+    // Qualquer veículo alterado que saiu do raio, deixou de existir ou virou
+    // mission car precisa ter o comportamento normal restaurado aqui.
     private void RestoreVehiclesNotTouched(HashSet<Vehicle> touchedThisTick)
     {
-        if (_invinciblizedVehicles.Count == 0)
+        if (_tweakedVehicles.Count == 0)
             return;
 
         var stale = new List<Vehicle>();
 
-        foreach (Vehicle v in _invinciblizedVehicles)
+        foreach (Vehicle v in _tweakedVehicles)
         {
             if (touchedThisTick.Contains(v))
                 continue;
@@ -234,35 +557,27 @@ public class NPCTurboBoost : Script
             stale.Add(v);
 
             if (v != null && v.Exists())
-            {
-                v.CanBeDamaged = true;
-                v.CanBeVisiblyDamaged = true;
-                v.CanTiresBurst = true;
-            }
+                RestoreVehicleDamageDefaults(v);
         }
 
         foreach (Vehicle v in stale)
-            _invinciblizedVehicles.Remove(v);
+            _tweakedVehicles.Remove(v);
     }
 
-    // Chamado quando o caos ou a invencibilidade são desligados: garante que
-    // nenhum veículo fica preso indestrutível depois que o efeito acaba.
-    private void RestoreAllInvinciblizedVehicles()
+    // Chamado quando invencível/amassar voltam ao padrão: garante que nenhum
+    // veículo fica preso indestrutível depois que o efeito acaba.
+    private void RestoreAllTweakedVehicles()
     {
-        if (_invinciblizedVehicles.Count == 0)
+        if (_tweakedVehicles.Count == 0)
             return;
 
-        foreach (Vehicle v in _invinciblizedVehicles)
+        foreach (Vehicle v in _tweakedVehicles)
         {
             if (v != null && v.Exists())
-            {
-                v.CanBeDamaged = true;
-                v.CanBeVisiblyDamaged = true;
-                v.CanTiresBurst = true;
-            }
+                RestoreVehicleDamageDefaults(v);
         }
 
-        _invinciblizedVehicles.Clear();
+        _tweakedVehicles.Clear();
     }
 
     private void ShowTutorialIfNeeded()
@@ -397,7 +712,13 @@ public class NPCTurboBoost : Script
             + " hudAberto=" + _hud.IsOpen
             + " desenhoDisparou=" + _perFrameDrawingSeen
             + " modoLegado=" + ModSettings.ChaosEnabled
-            + " modoVelMax=" + ModSettings.ChaosMaxSpeedModeEnabled);
+            + " modoVelMax=" + ModSettings.ChaosMaxSpeedModeEnabled
+            + " modoIma=" + ModSettings.ChaosMagnetModeEnabled
+            + " modoSolto=" + ModSettings.ChaosFreeRideModeEnabled
+            + " motoristasSemIA=" + _freedDrivers.Count
+            + " invencivel=" + ModSettings.ChaosInvincible
+            + " amassa=" + ModSettings.ChaosCrumple
+            + " veicAlterados=" + _tweakedVehicles.Count);
     }
 
     private void OnTick(object sender, EventArgs e)
@@ -415,10 +736,16 @@ public class NPCTurboBoost : Script
             if (_hud.IsOpen)
                 Player.CanControlCharacter = false;
 
-            if (ModSettings.ChaosEnabled || ModSettings.ChaosMaxSpeedModeEnabled)
+            if (ModSettings.ChaosEnabled || ModSettings.ChaosMaxSpeedModeEnabled
+                || ModSettings.ChaosMagnetModeEnabled || ModSettings.ChaosFreeRideModeEnabled)
                 ApplyTurboLogic();
             else
-                RestoreAllInvinciblizedVehicles();
+                RestoreAllFreedDrivers();
+
+            // Fora do if de propósito: invencibilidade e deformação valem por
+            // si só, sem exigir nenhum modo de movimento ligado.
+            ApplyDamageFlags();
+            CleanupOffscreenDebris();
         }
         catch (Exception ex)
         {

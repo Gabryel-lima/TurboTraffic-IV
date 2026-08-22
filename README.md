@@ -8,11 +8,16 @@ O TurboTraffic-IV é um mod que modifica o comportamento dos veículos controlad
 
 ### Funcionalidades
 
-- **Caos no Trânsito**: Aplica velocidade turbo aos veículos controlados por NPCs dentro de um raio configurável ao redor do jogador. **Vem desligado por padrão** — ligue pela aba Configurações do HUD (a escolha fica salva entre sessões)
+- **Caos no Trânsito**: Aplica velocidade turbo aos veículos controlados por NPCs dentro de um raio configurável ao redor do jogador. **Vem desligado por padrão** — ligue pela aba Configurações do HUD (a escolha fica salva entre sessões). São três modos independentes, que podem ser combinados:
+  - **Modo Legado (empurrão)**: empurrão aditivo e cumulativo a cada frame, sem teto — o formato original do mod
+  - **Modo Velocidade Máxima**: fixa a velocidade direto no alvo, como um cruzeiro constante
+  - **Modo Ímã (perseguição)**: redireciona o trânsito para cima do jogador. Não decide velocidade — só a direção — então combina com os outros dois: eles definem o "quão rápido", o Ímã define o "para onde"
+  - **Modo Solto (sem IA)**: desliga o trajeto da IA do motorista e empurra o carro sem recolocá-lo no eixo frontal, deixando a física resolver sozinha — o veículo deriva, roda e escorrega em vez de ser corrigido a cada frame. O motorista continua no banco e continua reagindo, tentando se virar durante o passeio. Ao desligar o modo (ou ao se afastar), a IA de trânsito é devolvida a ele
+- **Limpeza de detritos**: sucata fora do campo de visão do jogador é apagada automaticamente para liberar vagas de tráfego, mantendo o fluxo de veículos novos constante em vez de deixar a rua entupida de carcaças. Nada some na tela — só é candidato o que o jogador não está olhando, e a pelo menos 30 m. Ligada por padrão, desligável na aba Configurações
 - **HUD do Mod (F1)**: painel no canto superior esquerdo da tela com 3 abas:
   - **Comandos**: legenda de todas as teclas do mod e o que cada uma faz
   - **Spawn de Veículos**: escolha entre dezenas de veículos organizados por categoria e spawne dentro ou fora do carro
-  - **Configurações**: liga/desliga o caos no trânsito e ajusta o raio de alcance e a força de aceleração, com os valores salvos entre sessões
+  - **Configurações**: liga/desliga cada modo do caos no trânsito, ajusta o raio de alcance e os parâmetros de cada modo, e controla invencibilidade e deformação dos veículos, com os valores salvos entre sessões. Invencibilidade e deformação valem por si só — não exigem nenhum modo de movimento ligado
 - **Popup de tutorial**: ao carregar o mundo, o jogo mostra uma dica (no estilo nativo do GTA) ensinando a abrir o HUD com F1
 - **Elevação de Peds**: eleva todos os peds (incluindo o jogador) em 1 unidade (ativado com F6)
 - **Explosão do Jogador**: cria uma explosão na posição do jogador (ativado com F5)
@@ -44,9 +49,9 @@ TurboTraffic-IV/
 └── ResetHandling/         # Código fonte C# do mod principal
     ├── ResetVehicleScript.cs  # Orquestrador: liga teclas, tick e desenho do HUD
     ├── Config/                # Caminhos, log e persistência das configurações
-    ├── Keybinds/               # Registro único das teclas do mod (usado pela aba Comandos)
-    ├── Vehicles/                # Catálogo de veículos disponíveis para spawn
-    ├── Hud/                     # HUD (painel + abas Comandos/Spawn/Configurações)
+    ├── Keybinds/              # Registro único das teclas do mod (usado pela aba Comandos)
+    ├── Vehicles/              # Catálogo de veículos disponíveis para spawn
+    ├── Hud/                   # HUD (painel + abas Comandos/Spawn/Configurações)
     └── ...
 ```
 

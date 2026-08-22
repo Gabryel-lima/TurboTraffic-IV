@@ -12,20 +12,29 @@ public class SettingsTab : IHudTab
     private const int RowLegacyPower = 2;
     private const int RowMaxSpeedEnabled = 3;
     private const int RowMaxSpeedTarget = 4;
-    private const int RowInvincible = 5;
-    private const int RowCrumple = 6;
+    private const int RowMagnetEnabled = 5;
+    private const int RowMagnetPull = 6;
+    private const int RowFreeRideEnabled = 7;
+    private const int RowFreeRidePush = 8;
+    private const int RowInvincible = 9;
+    private const int RowCrumple = 10;
+    private const int RowDebrisCleanup = 11;
 
     private static readonly string[] Rows =
     {
         "Raio de alcance",
         "Modo Legado (empurrão)", "Força de aceleração",
         "Modo Velocidade Máxima", "Velocidade alvo",
-        "Veículos invencíveis", "Permitir amassar"
+        "Modo Ímã (perseguição)", "Força de atração",
+        "Modo Solto (sem IA)", "Impulso do modo solto",
+        "Veículos invencíveis", "Permitir amassar",
+        "Limpar detritos fora de vista"
     };
 
     private const float ValueColumnOffset = 340f;
 
     private int _selectedIndex;
+    private int _scrollOffset;
 
     public void MoveSelection(int direction)
     {
@@ -47,11 +56,20 @@ public class SettingsTab : IHudTab
             case RowMaxSpeedEnabled:
                 ModSettings.ToggleChaosMaxSpeedModeEnabled();
                 break;
+            case RowMagnetEnabled:
+                ModSettings.ToggleChaosMagnetModeEnabled();
+                break;
+            case RowFreeRideEnabled:
+                ModSettings.ToggleChaosFreeRideModeEnabled();
+                break;
             case RowInvincible:
                 ModSettings.ToggleChaosInvincible();
                 break;
             case RowCrumple:
                 ModSettings.ToggleChaosCrumple();
+                break;
+            case RowDebrisCleanup:
+                ModSettings.ToggleChaosDebrisCleanup();
                 break;
         }
     }
@@ -75,20 +93,53 @@ public class SettingsTab : IHudTab
             case RowMaxSpeedTarget:
                 ModSettings.AdjustChaosMaxSpeed(direction * ModSettings.ChaosMaxSpeedStep);
                 break;
+            case RowMagnetEnabled:
+                ModSettings.ToggleChaosMagnetModeEnabled();
+                break;
+            case RowMagnetPull:
+                ModSettings.AdjustChaosMagnetPull(direction * ModSettings.ChaosMagnetPullStep);
+                break;
+            case RowFreeRideEnabled:
+                ModSettings.ToggleChaosFreeRideModeEnabled();
+                break;
+            case RowFreeRidePush:
+                ModSettings.AdjustChaosFreeRidePush(direction * ModSettings.ChaosFreeRidePushStep);
+                break;
             case RowInvincible:
                 ModSettings.ToggleChaosInvincible();
                 break;
             case RowCrumple:
                 ModSettings.ToggleChaosCrumple();
                 break;
+            case RowDebrisCleanup:
+                ModSettings.ToggleChaosDebrisCleanup();
+                break;
         }
     }
 
     public void Draw(Graphics g, Font font, float x, float y, float width, float height)
     {
+        // Mesma rolagem da aba de spawn: a lista de opções cresce a cada modo
+        // novo e já não cabe na área de conteúdo, então desenha-se só a janela
+        // que cabe, com o item selecionado sempre dentro dela.
+        int maxRows = HudTheme.MaxRows(height);
+
+        if (_selectedIndex < _scrollOffset)
+            _scrollOffset = _selectedIndex;
+        if (_selectedIndex >= _scrollOffset + maxRows)
+            _scrollOffset = _selectedIndex - maxRows + 1;
+
+        int maxOffset = Rows.Length - maxRows;
+        if (maxOffset < 0) maxOffset = 0;
+        if (_scrollOffset > maxOffset) _scrollOffset = maxOffset;
+        if (_scrollOffset < 0) _scrollOffset = 0;
+
+        int end = _scrollOffset + maxRows;
+        if (end > Rows.Length) end = Rows.Length;
+
         float lineY = y;
 
-        for (int i = 0; i < Rows.Length; i++)
+        for (int i = _scrollOffset; i < end; i++)
         {
             bool selected = i == _selectedIndex;
 
@@ -104,12 +155,11 @@ public class SettingsTab : IHudTab
             lineY += HudTheme.RowHeight;
         }
 
-        HudTheme.DrawTabHint(g, font, x, y, height, "←→ ajustar     Enter alternar liga/desliga");
-    }
-
-    public static float MeasureHeight()
-    {
-        return (Rows.Length * HudTheme.RowHeight) + HudTheme.TabHintHeight;
+        // Contador no rodapé: com rolagem, sem ele não dá para saber que existe
+        // mais opção fora da tela.
+        HudTheme.DrawTabHint(g, font, x, y, height,
+            "←→ ajustar     Enter alternar liga/desliga     "
+            + (_selectedIndex + 1) + "/" + Rows.Length);
     }
 
     private string GetValueLabel(int index)
@@ -121,8 +171,13 @@ public class SettingsTab : IHudTab
             case RowLegacyPower: return ModSettings.ChaosTurboPower.ToString("0");
             case RowMaxSpeedEnabled: return ModSettings.ChaosMaxSpeedModeEnabled ? "Ativado" : "Desativado";
             case RowMaxSpeedTarget: return ModSettings.ChaosMaxSpeed.ToString("0");
+            case RowMagnetEnabled: return ModSettings.ChaosMagnetModeEnabled ? "Ativado" : "Desativado";
+            case RowMagnetPull: return ModSettings.ChaosMagnetPull.ToString("0");
+            case RowFreeRideEnabled: return ModSettings.ChaosFreeRideModeEnabled ? "Ativado" : "Desativado";
+            case RowFreeRidePush: return ModSettings.ChaosFreeRidePush.ToString("0");
             case RowInvincible: return ModSettings.ChaosInvincible ? "Ativado" : "Desativado";
             case RowCrumple: return ModSettings.ChaosCrumple ? "Ativado" : "Desativado";
+            case RowDebrisCleanup: return ModSettings.ChaosDebrisCleanup ? "Ativado" : "Desativado";
             default: return string.Empty;
         }
     }
