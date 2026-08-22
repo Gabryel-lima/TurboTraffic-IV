@@ -106,7 +106,7 @@ Enquanto o HUD está aberto, o controle do personagem fica travado, para que as 
 - **← / →**: ajusta o valor do item selecionado (aba Configurações)
 - **Enter**: confirma — spawna o veículo selecionado, ou liga/desliga o caos no trânsito
 - **Espaço**: ação secundária — na aba Spawn, alterna se o veículo nasce com você dentro ou fora dele
-- **Esc**: fecha o HUD
+- **F1**: abri/fecha o HUD
 
 Essas teclas ficam listadas dentro do próprio HUD, na aba **Comandos**, e o rodapé do painel repete o essencial: a troca de aba pelo **Tab** não é descoberta sozinha se não estiver escrita na tela.
 
