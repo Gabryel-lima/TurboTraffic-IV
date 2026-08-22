@@ -91,6 +91,16 @@ public class HudManager
         IsOpen = false;
     }
 
+    // Chamado todo tick pelo script principal, independente do HUD estar
+    // aberto — mantém lógica de fundo das abas rodando (ex.: despawn de
+    // veículos por inatividade no VehicleSpawnTab) mesmo com o menu fechado.
+    public void Update()
+    {
+        _commandsTab.Update();
+        _vehicleSpawnTab.Update();
+        _settingsTab.Update();
+    }
+
     // Esquema de navegação: Tab/Shift+Tab trocam de aba, ↑/↓ navegam a lista,
     // ←/→ ajustam o valor do item selecionado, Enter confirma e Espaço é a
     // ação secundária. O rodapé e a aba Comandos anunciam o Tab explicitamente,

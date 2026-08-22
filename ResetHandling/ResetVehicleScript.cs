@@ -17,6 +17,7 @@ public class NPCTurboBoost : Script
 
     private readonly HudManager _hud = new HudManager();
     private readonly HashSet<Keys> _keysDownLastFrame = new HashSet<Keys>();
+    private readonly HashSet<Vehicle> _invinciblizedVehicles = new HashSet<Vehicle>();
 
     private bool _tutorialShown;
     private bool _drawingWarningShown;
@@ -90,6 +91,40 @@ public class NPCTurboBoost : Script
         Player.Character.Die();
     }
 
+    // Modo Legado: empurrão ADITIVO e cumulativo, sem teto — o formato
+    // original do mod. Não sabe nada sobre o Modo Velocidade Máxima.
+    private void ApplyLegacyBoost(Vehicle v)
+    {
+        Vector3 speed = v.Velocity;
+        Vector3 forward = v.Direction;
+        float turboPower = ModSettings.ChaosTurboPower;
+
+        Vector3 boostedVel = speed + (forward * turboPower);
+
+        // Usa as propriedades tipadas do wrapper em vez de Function.Call:
+        // o native "SET_CAR_VELOCITY" NÃO existe neste ScriptHook (GTA IV
+        // 1.2.0.59) e falhava a cada frame, enchendo o log de erros.
+        v.Velocity = boostedVel;
+        v.Speed = boostedVel.Length();
+    }
+
+    // Modo Velocidade Máxima: mecânica DELIBERADAMENTE diferente do Legado —
+    // fixa a velocidade direto no alvo (sem somar ao valor atual), como um
+    // cruzeiro constante. Não sabe nada sobre o Modo Legado. Quando os dois
+    // modos estão ligados, este roda depois do Legado em ApplyTurboLogic, e
+    // como aqui a velocidade é sobrescrita (não somada), o alvo prevalece
+    // para aquele tick — essa ordem fixa é a composição entre os modos.
+    private void ApplyMaxSpeedMode(Vehicle v)
+    {
+        Vector3 forward = v.Direction;
+        float targetSpeed = ModSettings.ChaosMaxSpeed;
+
+        Vector3 cruiseVel = forward * targetSpeed;
+
+        v.Velocity = cruiseVel;
+        v.Speed = targetSpeed;
+    }
+
     private void ApplyTurboLogic()
     {
         Vehicle playerVeh = null;
@@ -99,6 +134,12 @@ public class NPCTurboBoost : Script
             playerVeh = Player.Character.CurrentVehicle;
 
         float radius = ModSettings.ChaosRadius;
+        bool legacyWanted = ModSettings.ChaosEnabled;
+        bool maxSpeedWanted = ModSettings.ChaosMaxSpeedModeEnabled;
+        bool invincibleWanted = ModSettings.ChaosInvincible;
+        bool crumpleWanted = ModSettings.ChaosCrumple;
+
+        var touchedThisTick = new HashSet<Vehicle>();
 
         foreach (Vehicle v in World.GetAllVehicles())
         {
@@ -109,7 +150,7 @@ public class NPCTurboBoost : Script
             if (playerInVehicle && v == playerVeh)
                 continue;
 
-            // Limite de distância
+            // Limite de distância (raio global, compartilhado por todos os modos)
             if (Player.Character.Position.DistanceTo(v.Position) > radius)
                 continue;
 
@@ -122,20 +163,106 @@ public class NPCTurboBoost : Script
             if (driver == Player.Character)
                 continue;
 
-            // TURBO ABSURDO quando player está a pé e no veículo
-            Vector3 speed = v.Velocity;
-            Vector3 forward = v.Direction;
+            // Nunca mexer em veículo/ped marcado como necessário para missão
+            // (perseguições, alvos, etc.) — evita quebrar progressão de missão.
+            if (v.isRequiredForMission || driver.isRequiredForMission)
+                continue;
 
-            float turboPower = ModSettings.ChaosTurboPower;
+            // Não turbar veículo capotado/fora das rodas.
+            if (v.isUpsideDown || !v.isOnAllWheels)
+                continue;
 
-            Vector3 boostedVel = speed + (forward * turboPower);
+            // Cada modo é aplicado por um método próprio que desconhece o
+            // outro — evita que a mecânica de um vaze para o outro. A ordem
+            // (Legado antes de Velocidade Máxima) é a composição combinada.
+            bool touchedByAnyMode = false;
 
-            // Usa as propriedades tipadas do wrapper em vez de Function.Call:
-            // o native "SET_CAR_VELOCITY" NÃO existe neste ScriptHook (GTA IV
-            // 1.2.0.59) e falhava a cada frame, enchendo o log de erros.
-            v.Velocity = boostedVel;
-            v.Speed = boostedVel.Length();
+            if (legacyWanted)
+            {
+                ApplyLegacyBoost(v);
+                touchedByAnyMode = true;
+            }
+
+            if (maxSpeedWanted)
+            {
+                ApplyMaxSpeedMode(v);
+                touchedByAnyMode = true;
+            }
+
+            // Nenhum modo tocou este veículo (ambos desligados) — não marca
+            // como "touched" nem aplica dano, para não confundir bookkeeping
+            // de um modo com o de outro.
+            if (!touchedByAnyMode)
+                continue;
+
+            touchedThisTick.Add(v);
+
+            // Dano é global e independente entre si — "invencível" e
+            // "amassar" não dependem um do outro. As flags são recalculadas
+            // aqui TODO tick a partir das configurações atuais, então uma
+            // mudança no HUD reflete imediatamente, mesmo que o veículo
+            // continue no raio (não fica preso num estado antigo).
+            v.CanBeDamaged = !invincibleWanted;
+            v.CanTiresBurst = !invincibleWanted;
+            v.CanBeVisiblyDamaged = crumpleWanted;
+
+            if (invincibleWanted || !crumpleWanted)
+                _invinciblizedVehicles.Add(v);
+            else
+                _invinciblizedVehicles.Remove(v);
         }
+
+        RestoreVehiclesNotTouched(touchedThisTick);
+    }
+
+    // As flags de dano (CanBeDamaged etc.) são persistentes — o jogo não as
+    // reseta sozinho. Qualquer veículo marcado invencível que saiu do raio,
+    // deixou de existir, ou não passa mais pelos guards (virou mission car,
+    // capotou) precisa ter o dano normal restaurado aqui.
+    private void RestoreVehiclesNotTouched(HashSet<Vehicle> touchedThisTick)
+    {
+        if (_invinciblizedVehicles.Count == 0)
+            return;
+
+        var stale = new List<Vehicle>();
+
+        foreach (Vehicle v in _invinciblizedVehicles)
+        {
+            if (touchedThisTick.Contains(v))
+                continue;
+
+            stale.Add(v);
+
+            if (v != null && v.Exists())
+            {
+                v.CanBeDamaged = true;
+                v.CanBeVisiblyDamaged = true;
+                v.CanTiresBurst = true;
+            }
+        }
+
+        foreach (Vehicle v in stale)
+            _invinciblizedVehicles.Remove(v);
+    }
+
+    // Chamado quando o caos ou a invencibilidade são desligados: garante que
+    // nenhum veículo fica preso indestrutível depois que o efeito acaba.
+    private void RestoreAllInvinciblizedVehicles()
+    {
+        if (_invinciblizedVehicles.Count == 0)
+            return;
+
+        foreach (Vehicle v in _invinciblizedVehicles)
+        {
+            if (v != null && v.Exists())
+            {
+                v.CanBeDamaged = true;
+                v.CanBeVisiblyDamaged = true;
+                v.CanTiresBurst = true;
+            }
+        }
+
+        _invinciblizedVehicles.Clear();
     }
 
     private void ShowTutorialIfNeeded()
@@ -269,7 +396,8 @@ public class NPCTurboBoost : Script
             + " F1pressionado=" + Game.isKeyPressed(Keys.F1)
             + " hudAberto=" + _hud.IsOpen
             + " desenhoDisparou=" + _perFrameDrawingSeen
-            + " caos=" + ModSettings.ChaosEnabled);
+            + " modoLegado=" + ModSettings.ChaosEnabled
+            + " modoVelMax=" + ModSettings.ChaosMaxSpeedModeEnabled);
     }
 
     private void OnTick(object sender, EventArgs e)
@@ -280,14 +408,17 @@ public class NPCTurboBoost : Script
             ShowTutorialIfNeeded();
             ProcessInput();
             WarnIfDrawingUnavailable();
+            _hud.Update();
 
             // Enquanto o HUD está aberto, o personagem fica travado para que as
             // setas naveguem o menu sem também mover o jogador.
             if (_hud.IsOpen)
                 Player.CanControlCharacter = false;
 
-            if (ModSettings.ChaosEnabled)
+            if (ModSettings.ChaosEnabled || ModSettings.ChaosMaxSpeedModeEnabled)
                 ApplyTurboLogic();
+            else
+                RestoreAllInvinciblizedVehicles();
         }
         catch (Exception ex)
         {

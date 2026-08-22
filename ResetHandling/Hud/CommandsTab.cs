@@ -24,6 +24,7 @@ public class CommandsTab : IHudTab
     public void AdjustValue(int direction) { }
     public void Confirm() { }
     public void Secondary() { }
+    public void Update() { }
 
     public void Draw(Graphics g, Font font, float x, float y, float width, float height)
     {

@@ -8,6 +8,20 @@ public class VehicleSpawnTab : IHudTab
 {
     private const float SpawnDistance = 6.0f;
 
+    // Veículo spawnado que fica parado e sem o player dentro por esse tempo
+    // some sozinho — evita acumular sucata pelo mapa em sessões longas.
+    private const int InactivityTimeoutMs = 45000;
+    private const float MovementThreshold = 3.0f;
+
+    private class SpawnedVehicleInfo
+    {
+        public Vehicle Vehicle;
+        public Vector3 LastActivePosition;
+        public int LastActiveTime;
+    }
+
+    private readonly List<SpawnedVehicleInfo> _spawnedVehicles = new List<SpawnedVehicleInfo>();
+
     // Uma linha da lista: ou um cabeçalho de categoria, ou um veículo.
     private struct DisplayLine
     {
@@ -90,12 +104,70 @@ public class VehicleSpawnTab : IHudTab
             if (_spawnInside)
                 player.WarpIntoVehicle(vehicle, VehicleSeat.Driver);
 
+            _spawnedVehicles.Add(new SpawnedVehicleInfo
+            {
+                Vehicle = vehicle,
+                LastActivePosition = vehicle.Position,
+                LastActiveTime = Game.GameTime
+            });
+
             ModLog.Write("Veiculo spawnado: " + entry.ModelName + (_spawnInside ? " (dentro)" : " (fora)"));
         }
         catch (System.Exception ex)
         {
             ModLog.WriteException("VehicleSpawnTab.Confirm", ex);
         }
+    }
+
+    // Roda todo tick. Um veículo spawnado é considerado ativo enquanto o
+    // player está dentro dele OU ele se move além do limiar — caso contrário,
+    // depois de InactivityTimeoutMs parado e vazio, é removido do mundo.
+    public void Update()
+    {
+        if (_spawnedVehicles.Count == 0)
+            return;
+
+        int now = Game.GameTime;
+        var stale = new List<SpawnedVehicleInfo>();
+
+        foreach (SpawnedVehicleInfo info in _spawnedVehicles)
+        {
+            Vehicle v = info.Vehicle;
+
+            if (v == null || !v.Exists())
+            {
+                stale.Add(info);
+                continue;
+            }
+
+            Ped player = Game.LocalPlayer.Character;
+            bool playerInside = player != null && player.Exists()
+                && player.isInVehicle() && player.CurrentVehicle == v;
+
+            if (playerInside)
+            {
+                info.LastActivePosition = v.Position;
+                info.LastActiveTime = now;
+                continue;
+            }
+
+            if (v.Position.DistanceTo(info.LastActivePosition) > MovementThreshold)
+            {
+                info.LastActivePosition = v.Position;
+                info.LastActiveTime = now;
+                continue;
+            }
+
+            if (now - info.LastActiveTime >= InactivityTimeoutMs)
+            {
+                ModLog.Write("Veiculo spawnado removido por inatividade.");
+                v.Delete();
+                stale.Add(info);
+            }
+        }
+
+        foreach (SpawnedVehicleInfo info in stale)
+            _spawnedVehicles.Remove(info);
     }
 
     public void Draw(Graphics g, Font font, float x, float y, float width, float height)

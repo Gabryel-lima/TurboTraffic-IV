@@ -5,7 +5,23 @@ using Graphics = GTA.Graphics;
 
 public class SettingsTab : IHudTab
 {
-    private static readonly string[] Rows = { "Caos no trânsito", "Raio de alcance", "Força de aceleração" };
+    // Índices fixos usados em Confirm/AdjustValue/GetValueLabel — mantidos
+    // como consts para não perder a correspondência ao reordenar linhas.
+    private const int RowRadius = 0;
+    private const int RowLegacyEnabled = 1;
+    private const int RowLegacyPower = 2;
+    private const int RowMaxSpeedEnabled = 3;
+    private const int RowMaxSpeedTarget = 4;
+    private const int RowInvincible = 5;
+    private const int RowCrumple = 6;
+
+    private static readonly string[] Rows =
+    {
+        "Raio de alcance",
+        "Modo Legado (empurrão)", "Força de aceleração",
+        "Modo Velocidade Máxima", "Velocidade alvo",
+        "Veículos invencíveis", "Permitir amassar"
+    };
 
     private const float ValueColumnOffset = 340f;
 
@@ -19,24 +35,51 @@ public class SettingsTab : IHudTab
 
     public void Secondary() { }
 
+    public void Update() { }
+
     public void Confirm()
     {
-        if (_selectedIndex == 0)
-            ModSettings.ToggleChaosEnabled();
+        switch (_selectedIndex)
+        {
+            case RowLegacyEnabled:
+                ModSettings.ToggleChaosEnabled();
+                break;
+            case RowMaxSpeedEnabled:
+                ModSettings.ToggleChaosMaxSpeedModeEnabled();
+                break;
+            case RowInvincible:
+                ModSettings.ToggleChaosInvincible();
+                break;
+            case RowCrumple:
+                ModSettings.ToggleChaosCrumple();
+                break;
+        }
     }
 
     public void AdjustValue(int direction)
     {
         switch (_selectedIndex)
         {
-            case 0:
-                ModSettings.ToggleChaosEnabled();
-                break;
-            case 1:
+            case RowRadius:
                 ModSettings.AdjustChaosRadius(direction * ModSettings.ChaosRadiusStep);
                 break;
-            case 2:
+            case RowLegacyEnabled:
+                ModSettings.ToggleChaosEnabled();
+                break;
+            case RowLegacyPower:
                 ModSettings.AdjustChaosTurboPower(direction * ModSettings.ChaosTurboPowerStep);
+                break;
+            case RowMaxSpeedEnabled:
+                ModSettings.ToggleChaosMaxSpeedModeEnabled();
+                break;
+            case RowMaxSpeedTarget:
+                ModSettings.AdjustChaosMaxSpeed(direction * ModSettings.ChaosMaxSpeedStep);
+                break;
+            case RowInvincible:
+                ModSettings.ToggleChaosInvincible();
+                break;
+            case RowCrumple:
+                ModSettings.ToggleChaosCrumple();
                 break;
         }
     }
@@ -73,9 +116,13 @@ public class SettingsTab : IHudTab
     {
         switch (index)
         {
-            case 0: return ModSettings.ChaosEnabled ? "Ativado" : "Desativado";
-            case 1: return ModSettings.ChaosRadius.ToString("0") + " m";
-            case 2: return ModSettings.ChaosTurboPower.ToString("0");
+            case RowRadius: return ModSettings.ChaosRadius.ToString("0") + " m";
+            case RowLegacyEnabled: return ModSettings.ChaosEnabled ? "Ativado" : "Desativado";
+            case RowLegacyPower: return ModSettings.ChaosTurboPower.ToString("0");
+            case RowMaxSpeedEnabled: return ModSettings.ChaosMaxSpeedModeEnabled ? "Ativado" : "Desativado";
+            case RowMaxSpeedTarget: return ModSettings.ChaosMaxSpeed.ToString("0");
+            case RowInvincible: return ModSettings.ChaosInvincible ? "Ativado" : "Desativado";
+            case RowCrumple: return ModSettings.ChaosCrumple ? "Ativado" : "Desativado";
             default: return string.Empty;
         }
     }
