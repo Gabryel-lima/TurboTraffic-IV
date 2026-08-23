@@ -11,19 +11,31 @@ O ResetHandling modifica o comportamento dos veículos controlados por NPCs no G
 1. **Caos no Trânsito** (`ApplyTurboLogic`, chamado a cada frame)
    - Aplica velocidade turbo aos veículos controlados por NPCs
    - **Começa desligado** (`ChaosEnabled` default `false`): só age depois que o jogador ligar pela aba **Configurações** do HUD
-   - Raio de alcance e força de aceleração configuráveis pelo HUD (persistidos em `Documentos\TurboTraffic-IV\ResetHandling.ini`)
+   - Raio de alcance e parâmetros de cada modo configuráveis pelo HUD (persistidos em `Documentos\TurboTraffic-IV\ResetHandling.ini`)
    - Nunca modifica o veículo do jogador, e ignora veículos estacionados (sem motorista)
+   - Quatro modos independentes e combináveis, cada um num método próprio que desconhece os outros. A ordem no laço é a composição: `ApplyLegacyBoost` → `ApplyMaxSpeedMode` → `ApplyFreeRideMode` → `ApplyMagnetMode` (os três primeiros decidem *velocidade*; o Ímã, por último, decide *direção*)
+   - O **Modo Solto** (`ChaosFreeRideModeEnabled`) usa `Task.ClearAllImmediately` para matar o trajeto da IA. Esse native aborta também a tarefa que segura o ped no banco, então o motorista acaba na rua e o veículo, sem motorista, sai do laço — por isso o modo é um empurrão de **largada**, não um efeito contínuo
 
-2. **HUD do mod (F1)** — painel desenhado no canto superior esquerdo com três abas:
+2. **Limpeza de detritos** (`CleanupOffscreenDebris`, varredura a cada 750 ms)
+   - Apaga sucata fora do campo de visão (`Vehicle.isOnScreen`) e a mais de 30 m, liberando vagas de tráfego para o jogo continuar spawnando veículos novos
+   - `DeleteVehicleWithOccupants` apaga os ocupantes junto: `DELETE_CAR` remove só o veículo e **deposita quem estava dentro no chão**
+   - `GetOccupants` enumera apenas os assentos que o modelo realmente tem (`Vehicle.PassengerSeats` + `isSeatFree`). `GetPedOnSeat` não valida o assento contra o modelo e devolve handle inválido para assentos inexistentes — o que causava `AccessViolationException` dentro do tick
+   - Cada veículo da varredura roda em `try/catch` próprio, para um handle problemático não derrubar o tick inteiro (turbo e HUD junto)
+
+   > ⚠️ **Limitação conhecida**: a limpeza pode contribuir para peds a mais nas ruas, mas **só em conjunto com o Modo Solto**, o único que ejeta motoristas. `CleanupLooseChaosPeds` remove os ejetados rastreados em `_freedDrivers` (fora da tela, > 30 m), porém a cobertura não é completa. Pendente de um acerto melhor.
+
+3. **HUD do mod (F1)** — painel desenhado no canto superior esquerdo com três abas:
    - **Comandos**: lista as teclas do mod (F1/F5/F6) e o que cada uma faz, lida diretamente de `KeybindRegistry`
    - **Spawn de Veículos**: navega um catálogo de veículos por categoria e spawna o veículo selecionado à frente do jogador, dentro ou fora dele
-   - **Configurações**: liga/desliga o caos no trânsito e ajusta raio/força com incrementos fixos
+   - **Configurações**: liga/desliga cada modo do caos, ajusta raio e parâmetros com incrementos fixos, e controla invencibilidade, deformação e a limpeza de detritos. A lista passou de 12 itens e não cabe mais na área de conteúdo, então rola com o item selecionado sempre visível (`HudTheme.MaxRows`), com o contador `n/total` no rodapé
 
-3. **Popup de tutorial** — na primeira vez que o personagem existe e está vivo, mostra uma dica (`Game.DisplayText`) ensinando a abrir o HUD com F1
+4. **Dano e invencibilidade** (`ApplyDamageFlags`, passada própria a cada tick) — independe de qualquer modo de movimento estar ligado. Usa `MakeProofTo` (`SET_CAR_PROOFS`) além de `CanBeDamaged`, porque este último sozinho não blinda o veículo contra colisão, fogo e explosão
 
-4. **Elevação de Peds (F6)**: eleva todos os peds (incluindo o jogador) em 1 unidade, resetando a velocidade para evitar quedas violentas
+5. **Popup de tutorial** — na primeira vez que o personagem existe e está vivo, mostra uma dica (`Game.DisplayText`) ensinando a abrir o HUD com F1
 
-5. **Explosão do Jogador (F5)**: cria uma explosão na posição atual do jogador e o mata, para consistência
+6. **Elevação de Peds (F6)**: eleva todos os peds (incluindo o jogador) em 1 unidade, resetando a velocidade para evitar quedas violentas
+
+7. **Explosão do Jogador (F5)**: cria uma explosão na posição atual do jogador e o mata, para consistência
 
 Tanto F1/F5/F6 quanto a navegação do HUD usam **polling com detecção de borda** (`Game.isKeyPressed` comparado com o estado do frame anterior, em `ProcessInput`): a ação dispara uma vez por tecla pressionada, e segurar a tecla não repete. O evento `Script.KeyDown` existe na API mas não se mostrou confiável neste ambiente — o polling é o mecanismo comprovadamente entregue.
 
@@ -108,7 +120,7 @@ public NPCTurboBoost()
 ```
 
 - **`OnKeyDown`**: se o HUD está aberto, repassa a tecla para `HudManager.HandleKey`; senão, roteia F1 (abre o HUD), F5 (`ExplodePlayer`) e F6 (`ElevatePeds`).
-- **`OnTick`**: mostra o popup de tutorial uma única vez, e chama `ApplyTurboLogic()` somente se `ModSettings.ChaosEnabled` estiver ativo.
+- **`OnTick`**: mostra o popup de tutorial uma única vez; chama `ApplyTurboLogic()` se **qualquer** um dos quatro modos estiver ligado, e depois `ApplyDamageFlags()` e `CleanupOffscreenDebris()` — essas duas fora do `if`, de propósito, porque valem por si só.
 - **`OnPerFrameDrawing`**: delega o desenho do HUD para `HudManager.Draw(e.Graphics)`.
 
 #### ApplyTurboLogic()

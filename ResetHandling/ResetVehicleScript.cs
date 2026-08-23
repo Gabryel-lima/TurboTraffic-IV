@@ -45,6 +45,7 @@ public class NPCTurboBoost : Script
 
     private int _lastDebrisSweepTime;
 
+
     private bool _tutorialShown;
     private bool _drawingWarningShown;
     private bool _perFrameDrawingSeen;
@@ -333,25 +334,194 @@ public class NPCTurboBoost : Script
             if (playerPos.DistanceTo(v.Position) < DebrisMinDistance)
                 continue;
 
-            if (!IsDebris(v))
-                continue;
-
-            // O motorista morto ia ficar boiando no ar depois que o carro
-            // some — solta o ped junto para o jogo recolher os dois.
-            Ped driver = v.GetPedOnSeat(VehicleSeat.Driver);
-            if (driver != null && driver.Exists())
+            // Isolamento por veículo: um handle problemático faz esta sucata ser
+            // pulada, não o tick inteiro morrer. O catch do OnTick abortaria
+            // junto o turbo e o HUD daquele frame.
+            try
             {
-                _freedDrivers.Remove(driver);
-                driver.NoLongerNeeded();
-            }
+                if (!IsDebris(v))
+                    continue;
 
-            _tweakedVehicles.Remove(v);
-            v.Delete();
-            deleted++;
+                List<Ped> occupants = GetOccupants(v);
+
+                // Ped de missão dentro de um carro comum: não mexer no conjunto.
+                if (HasMissionOccupant(occupants))
+                    continue;
+
+                DeleteVehicleWithOccupants(v, occupants);
+                deleted++;
+            }
+            catch (Exception ex)
+            {
+                ModLog.WriteException("CleanupOffscreenDebris.veiculo", ex);
+            }
         }
 
-        if (deleted > 0)
-            ModLog.Write("Detritos removidos fora do campo de visao: " + deleted);
+        int pedsRemoved = CleanupLooseChaosPeds(playerPos);
+
+        if (deleted > 0 || pedsRemoved > 0)
+            ModLog.Write("Limpeza fora do campo de visao: veiculos=" + deleted + " peds=" + pedsRemoved);
+    }
+
+    // ESTA era a fábrica de pedestres. DELETE_CAR remove o veículo mas NÃO
+    // remove quem está dentro: o jogo simplesmente deposita os ocupantes no
+    // chão onde o carro estava. Como IsDebris aceita qualquer carcaça — e uma
+    // carcaça costuma ter o motorista VIVO ainda sentado —, cada sucata
+    // apagada fora da tela virava um pedestre novo na rua. Marcar o ped como
+    // NoLongerNeeded, que era o que estava aqui, não apaga ninguém: só diz ao
+    // jogo que o script não precisa mais dele.
+    private void DeleteVehicleWithOccupants(Vehicle v, List<Ped> occupants)
+    {
+        foreach (Ped p in occupants)
+        {
+            if (p == Player.Character)
+                continue;
+
+            _freedDrivers.Remove(p);
+
+            try
+            {
+                p.Delete();
+            }
+            catch (Exception ex)
+            {
+                ModLog.WriteException("DeleteVehicleWithOccupants", ex);
+            }
+        }
+
+        _tweakedVehicles.Remove(v);
+        v.Delete();
+    }
+
+    // Enumera SÓ os assentos que o veículo realmente tem.
+    //
+    // GetPedOnSeat não valida o assento contra o modelo: pedir o banco traseiro
+    // de uma moto ou de um carro de dois lugares devolve um handle lixo, que
+    // passa por Exists() e derruba o jogo no primeiro native de verdade
+    // chamado sobre ele — foi assim que isRequiredForMission estourou um
+    // AccessViolationException dentro do tick. PassengerSeats dá a lotação real
+    // do modelo, e isSeatFree evita perguntar por um ocupante que não existe.
+    private List<Ped> GetOccupants(Vehicle v)
+    {
+        var occupants = new List<Ped>();
+
+        try
+        {
+            int passengerSeats = v.PassengerSeats;
+
+            // i == -1 é o banco do motorista; 0..n-1 mapeiam para RightFront,
+            // LeftRear e RightRear, na ordem do enum VehicleSeat.
+            for (int i = -1; i < passengerSeats; i++)
+            {
+                VehicleSeat seat = i < 0 ? VehicleSeat.Driver : (VehicleSeat)i;
+
+                if (v.isSeatFree(seat))
+                    continue;
+
+                Ped p = v.GetPedOnSeat(seat);
+
+                if (p == null || !p.Exists())
+                    continue;
+
+                occupants.Add(p);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Um assento problemático não pode derrubar o tick inteiro: a lista
+            // sai incompleta e a varredura segue.
+            ModLog.WriteException("GetOccupants", ex);
+        }
+
+        return occupants;
+    }
+
+    private bool HasMissionOccupant(List<Ped> occupants)
+    {
+        foreach (Ped p in occupants)
+        {
+            try
+            {
+                if (p.isRequiredForMission)
+                    return true;
+            }
+            catch (Exception ex)
+            {
+                // Handle duvidoso: trata como "de missão" e deixa o veículo em
+                // paz. Melhor manter uma carcaça do que arriscar outro crash.
+                ModLog.WriteException("HasMissionOccupant", ex);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Remove os pedestres que o próprio caos criou e que já estão soltos na
+    // rua. Escopo deliberadamente estreito: só ped que ESTE mod tirou de um
+    // carro (rastreado em _freedDrivers) ou cadáver. A população normal da
+    // cidade não é tocada — apagar qualquer pedestre fora da tela esvaziaria
+    // as calçadas e daria um mundo morto.
+    private int CleanupLooseChaosPeds(Vector3 playerPos)
+    {
+        if (_freedDrivers.Count == 0)
+            return 0;
+
+        var removable = new List<Ped>();
+
+        foreach (Ped p in _freedDrivers.Keys)
+        {
+            if (p == null || !p.Exists())
+            {
+                removable.Add(p);
+                continue;
+            }
+
+            try
+            {
+                // Ainda dirigindo: é do caos, não é detrito.
+                if (p.isInVehicle())
+                    continue;
+
+                if (p == Player.Character || p.isRequiredForMission)
+                    continue;
+
+                // Mesmas regras dos veículos: nada some em cena nem perto demais.
+                if (p.isOnScreen || playerPos.DistanceTo(p.Position) < DebrisMinDistance)
+                    continue;
+
+                removable.Add(p);
+            }
+            catch (Exception ex)
+            {
+                // Handle que passou por Exists() mas explode num native de
+                // verdade: para de rastrear e não encosta mais nele.
+                ModLog.WriteException("CleanupLooseChaosPeds", ex);
+                removable.Add(p);
+            }
+        }
+
+        int removed = 0;
+
+        foreach (Ped p in removable)
+        {
+            _freedDrivers.Remove(p);
+
+            try
+            {
+                if (p != null && p.Exists())
+                {
+                    p.Delete();
+                    removed++;
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLog.WriteException("CleanupLooseChaosPeds.Delete", ex);
+            }
+        }
+
+        return removed;
     }
 
     private bool IsDebris(Vehicle v)
@@ -362,6 +532,11 @@ public class NPCTurboBoost : Script
         // dele, e a limpeza viraria um ladrão de carros.
         if (!v.isDriveable || v.isUpsideDown || v.isOnFire || v.Health <= 0)
             return true;
+
+        // isSeatFree antes de pedir o ped: mesmo cuidado de GetOccupants, para
+        // nunca tocar num handle que o modelo não tem.
+        if (v.isSeatFree(VehicleSeat.Driver))
+            return false;
 
         Ped driver = v.GetPedOnSeat(VehicleSeat.Driver);
         return driver != null && driver.Exists() && driver.isDead;
