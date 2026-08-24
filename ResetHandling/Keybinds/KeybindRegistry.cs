@@ -21,5 +21,6 @@ public static class KeybindRegistry
         new KeybindEntry(Keys.F1, "F1", "Abrir/fechar o HUD do TurboTraffic-IV"),
         new KeybindEntry(Keys.F5, "F5", "Explodir o player"),
         new KeybindEntry(Keys.F6, "F6", "Levitar peds ao redor do player"),
+        new KeybindEntry(Keys.F7, "F7", "Consertar o veiculo do player"),
     };
 }

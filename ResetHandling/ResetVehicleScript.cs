@@ -10,7 +10,7 @@ public class NPCTurboBoost : Script
     // o polling é o mecanismo comprovadamente entregue neste ambiente.
     private static readonly Keys[] WatchedKeys =
     {
-        Keys.F1, Keys.F5, Keys.F6,
+        Keys.F1, Keys.F5, Keys.F6, Keys.F7,
         Keys.Up, Keys.Down, Keys.Left, Keys.Right,
         Keys.Enter, Keys.Escape, Keys.Space, Keys.Tab
     };
@@ -33,6 +33,10 @@ public class NPCTurboBoost : Script
     // jogo (dano normal, amassa normal).
     private bool _appliedInvincible;
     private bool _appliedCrumple = true;
+
+    // Invencibilidade do jogador já aplicada — só serve para saber quando
+    // DESFAZER. Ligada, ela é reemitida todo tick (ver ApplyPlayerInvincibility).
+    private bool _appliedPlayerInvincible;
 
     // Motoristas com a IA de trajeto desligada pelo Modo Solto, e o instante
     // da última limpeza de tarefa de cada um — precisam ter a tarefa de
@@ -71,6 +75,26 @@ public class NPCTurboBoost : Script
 
     private int _lastTurboTime;
     private float _turboFrameScale = 1.0f;
+
+    // Resumo da varredura de impulsos no log (ver LogTurboSweep).
+    private const int TurboSweepLogIntervalMs = 5000;
+    private int _lastTurboLogTime;
+    private string _lastTurboSummary;
+
+    // Tempo que o Modo Velocidade Máxima leva para levar um carro parado até o
+    // alvo. Proporcional ao alvo, então a subida demora o mesmo tanto seja o
+    // alvo 50 ou 400 — o que muda é a aceleração, não a espera.
+    private const float MaxSpeedRampSeconds = 1.5f;
+
+    // Fração do empurrão entregue como força física (ver ApplyPhysicalPush).
+    // Alta o bastante para o carro reagir com o corpo, baixa o bastante para
+    // não dobrar o efeito que a escrita de velocidade já garante.
+    private const float PhysicalForceShare = 0.35f;
+
+    // Quanto da direção o Modo Ímã corrige por frame de referência. 0.15 leva
+    // cerca de meio segundo para o carro apontar ao jogador — rápido o
+    // suficiente para perseguir, lento o suficiente para ser uma curva.
+    private const float MagnetTurnRatePerFrame = 0.15f;
 
 
     private bool _tutorialShown;
@@ -141,6 +165,16 @@ public class NPCTurboBoost : Script
         // Explosão grande
         World.AddExplosion(pos, ExplosionType.Default, 10.0f);
 
+        // Com a invencibilidade do jogador ligada, o Die() explícito passaria
+        // por cima dela e mataria assim mesmo — a opção diz "não morrer", e ela
+        // tem que valer também contra os comandos do próprio mod. A explosão
+        // continua acontecendo; só o jogador é que sai dela de pé.
+        if (ModSettings.PlayerInvincible)
+        {
+            Game.DisplayText("TurboTraffic-IV: explosao criada (player invencivel, nao morreu).", 2500);
+            return;
+        }
+
         // Mata o player para garantir consistência com a explosão
         Player.Character.Die();
     }
@@ -149,25 +183,28 @@ public class NPCTurboBoost : Script
     // original do mod. Não sabe nada sobre o Modo Velocidade Máxima.
     private void ApplyLegacyBoost(Vehicle v)
     {
-        Vector3 speed = v.Velocity;
         Vector3 forward = v.Direction;
         float turboPower = ModSettings.ChaosTurboPower * _turboFrameScale;
 
-        Vector3 boostedVel = speed + (forward * turboPower);
-
-        // SÓ Speed, e não Velocity antes dele. Havia aqui uma atribuição de
-        // Velocity com o vetor somado, logo antes desta linha, que era código
-        // morto: Speed reprojeta TODA a magnitude no eixo frontal do carro (é o
-        // mesmo motivo documentado em ApplyMagnetMode e ApplyFreeRideMode), de
-        // modo que o vetor recém-escrito era descartado no ato. O empurrão
-        // frontal e cumulativo — que é a mecânica deste modo, e o que
-        // distingue ele do Solto, onde o vetor inteiro é preservado e o carro
-        // deriva — vem inteiro de Speed.
+        // Velocidade ATUAL projetada no eixo do nariz (produto escalar), e não
+        // o comprimento do vetor.
         //
+        // Com Length(), tudo o que o carro tivesse de movimento virava
+        // combustível para o empurrão frontal: a derrapagem lateral entrava na
+        // conta, a queda de um viaduto entrava na conta, e um carro andando de
+        // ré era cuspido para a FRENTE, porque comprimento não tem sinal. Era
+        // esse o motivo de o mesmo valor de Força render empurrões tão
+        // diferentes de um carro para o outro. Com Dot, o que se soma é a
+        // velocidade que o carro de fato tem PARA ONDE ELE APONTA — o resto do
+        // movimento fica onde estava.
+        float forwardSpeed = Vector3.Dot(v.Velocity, forward);
+
         // Usa as propriedades tipadas do wrapper em vez de Function.Call:
         // o native "SET_CAR_VELOCITY" NÃO existe neste ScriptHook (GTA IV
         // 1.2.0.59) e falhava a cada frame, enchendo o log de erros.
-        v.Speed = boostedVel.Length();
+        v.Speed = forwardSpeed + turboPower;
+
+        ApplyPhysicalPush(v, forward, turboPower);
     }
 
     // Modo Velocidade Máxima: mecânica DELIBERADAMENTE diferente do Legado —
@@ -180,11 +217,34 @@ public class NPCTurboBoost : Script
     {
         Vector3 forward = v.Direction;
         float targetSpeed = ModSettings.ChaosMaxSpeed;
+        float currentSpeed = Vector3.Dot(v.Velocity, forward);
 
-        Vector3 cruiseVel = forward * targetSpeed;
+        // ACELERA até o alvo, em vez de grudar nele.
+        //
+        // Antes a velocidade era escrita direto no alvo a cada frame. Isso
+        // apagava a física inteira do carro: ele saía de 0 a 500 km/h no
+        // primeiro frame, atravessava batidas sem perder um quilômetro por
+        // hora (o frame seguinte reimpunha o alvo) e não tinha peso nenhum.
+        // Com a rampa, o carro ganha velocidade ao longo de MaxSpeedRampSeconds
+        // — ele acelera, a colisão realmente o segura, e ele volta a acelerar
+        // depois. O alvo continua sendo alvo; só deixou de ser teletransporte.
+        //
+        // A rampa é proporcional ao alvo, então chegar lá leva sempre o mesmo
+        // tempo, seja o alvo 50 ou 400.
+        float step = (targetSpeed / MaxSpeedRampSeconds) * FrameSeconds();
+        float delta = targetSpeed - currentSpeed;
 
-        v.Velocity = cruiseVel;
-        v.Speed = targetSpeed;
+        if (delta > step)
+            delta = step;
+        else if (delta < -step)
+            delta = -step;
+
+        v.Speed = currentSpeed + delta;
+
+        // Só empurra fisicamente quando está ACELERANDO: aplicar força para a
+        // frente enquanto o carro desacelera brigaria com a própria rampa.
+        if (delta > 0.0f)
+            ApplyPhysicalPush(v, forward, delta);
     }
 
     // Modo Ímã: o trânsito converge no jogador. Mecânica deliberadamente
@@ -215,10 +275,25 @@ public class NPCTurboBoost : Script
         if (speed < pull)
             speed = pull;
 
+        Vector3 desired = direction * speed;
+
+        // CURVA em direção ao jogador, em vez de saltar para a direção nova.
+        //
+        // Antes a velocidade era substituída inteira pelo vetor apontado ao
+        // jogador. O carro trocava de direção instantaneamente, sem inércia:
+        // andava de lado, virava de costas para onde estava indo e escorregava
+        // pela rua como se estivesse no gelo. Interpolando, a velocidade antiga
+        // ainda pesa — o carro descreve uma curva, contorna o quarteirão e
+        // chega dirigindo, não deslizando.
+        float turn = MagnetTurnRatePerFrame * _turboFrameScale;
+
+        if (turn > 1.0f)
+            turn = 1.0f;
+
         // Só Velocity, sem tocar em Speed: Speed empurra ao longo do eixo
         // FRONTAL do carro, o que jogaria o veículo para onde ele está virado
         // e desfaria justamente a direção que este modo acabou de calcular.
-        v.Velocity = direction * speed;
+        v.Velocity = Vector3.Lerp(v.Velocity, desired, turn);
     }
 
     // Modo Solto: empurra o carro DEPOIS de tirar o motorista do trajeto, para
@@ -228,13 +303,45 @@ public class NPCTurboBoost : Script
     // impulso é a única coisa que age sobre o carro.
     private void ApplyFreeRideMode(Vehicle v, Ped driver)
     {
-        ReleaseDriverAi(driver);
+        // Sem motorista não há IA a soltar — o carro já está entregue à física,
+        // que é justamente o estado que este modo procura.
+        if (driver != null)
+            ReleaseDriverAi(driver);
+
+        Vector3 forward = v.Direction;
+        float push = ModSettings.ChaosFreeRidePush * _turboFrameScale;
 
         // Impulso puramente ADITIVO no vetor, sem passar por Speed. Essa é a
         // diferença que dá o comportamento "solto": Speed recoloca o carro no
         // eixo frontal todo frame, matando o componente lateral. Preservando o
         // vetor inteiro, o carro deriva, roda e escorrega de verdade.
-        v.Velocity = v.Velocity + (v.Direction * ModSettings.ChaosFreeRidePush * _turboFrameScale);
+        v.Velocity = v.Velocity + (forward * push);
+
+        ApplyPhysicalPush(v, forward, push);
+    }
+
+    // Parcela do empurrão entregue como FORÇA de verdade, além da escrita de
+    // velocidade.
+    //
+    // A escrita de velocidade é o que garante o efeito — ela é determinística e
+    // funciona mesmo com a IA do motorista puxando o volante para o outro lado.
+    // Mas ela também é o que fazia o impulso parecer um teletransporte: o carro
+    // trocava de velocidade sem que nada no corpo dele reagisse. A força passa
+    // pela simulação: a suspensão comprime, o nariz levanta, o peso vai para a
+    // traseira, e o carro sai de fato "empurrado" em vez de "reposicionado".
+    //
+    // Os dois juntos de propósito, e a força como uma FRAÇÃO do empurrão: força
+    // sozinha seria inconsistente demais (carro pesado mal se mexe), e força
+    // cheia somada à velocidade dobraria o efeito.
+    private void ApplyPhysicalPush(Vehicle v, Vector3 forward, float speedDelta)
+    {
+        if (speedDelta <= 0.0f)
+            return;
+
+        // Vetor em coordenadas do mundo (ApplyForce, não ApplyForceRelative):
+        // v.Direction já é o nariz do carro no mundo, então não é preciso
+        // adivinhar qual eixo local do modelo aponta para frente.
+        v.ApplyForce(forward * (speedDelta * PhysicalForceShare));
     }
 
     // Desliga o "pathing" do motorista sem apagar o motorista.
@@ -273,10 +380,42 @@ public class NPCTurboBoost : Script
     // que as flags de dano tinham.
     private void RestoreDriverAi(Ped driver)
     {
+        // Isolamento por motorista: a devolução da IA passou a consultar
+        // isRequiredForMission, e um handle duvidoso estoura justamente nesse
+        // native (ver HasMissionOccupant). Sem este catch, um único motorista
+        // problemático derrubaria o tick inteiro — junto com o turbo e o HUD
+        // daquele frame.
+        try
+        {
+            RestoreDriverAiCore(driver);
+        }
+        catch (Exception ex)
+        {
+            ModLog.WriteException("RestoreDriverAi", ex);
+        }
+    }
+
+    private void RestoreDriverAiCore(Ped driver)
+    {
         driver.BlockPermanentEvents = false;
         driver.WillFlyThroughWindscreen = true;
         driver.CanBeKnockedOffBike = true;
         driver.Task.ClearAllImmediately();
+
+        // Motorista de missão: limpa a tarefa e PARA por aqui, sem impor
+        // nenhuma. Dar "dirija por aí" ao alvo de uma perseguição o
+        // aposentaria como alvo de vez — a tarefa do mod ficaria por cima da
+        // que o script da missão emitiu, e a missão nunca mais andaria. Sem
+        // tarefa imposta, o script da missão retoma o motorista sozinho.
+        //
+        // AlwaysKeepTask volta a true porque é assim que peds de missão são
+        // configurados: é o que faz a tarefa da missão sobreviver a sustos,
+        // colisões e tiros — exatamente o que o Modo Solto tinha desligado.
+        if (driver.isRequiredForMission)
+        {
+            driver.Task.AlwaysKeepTask = true;
+            return;
+        }
 
         if (driver.isInVehicle())
             driver.Task.CruiseWithVehicle(driver.CurrentVehicle, 20.0f, true);
@@ -607,6 +746,98 @@ public class NPCTurboBoost : Script
         _turboFrameScale = scale;
     }
 
+    // Duração deste frame em segundos, derivada da mesma escala (e portanto já
+    // com o mesmo teto contra pausas e telas de loading). Serve para as taxas
+    // expressas por SEGUNDO, como a rampa do Modo Velocidade Máxima.
+    private float FrameSeconds()
+    {
+        return _turboFrameScale / BoostReferenceFps;
+    }
+
+    // Motorista do veículo, ou null. Nunca lança: um handle ruim vira "sem
+    // motorista", e o carro segue para as regras de veículo sem condutor em vez
+    // de derrubar a varredura.
+    private Ped TryGetDriver(Vehicle v)
+    {
+        try
+        {
+            Ped driver = v.GetPedOnSeat(VehicleSeat.Driver);
+
+            if (driver == null || !driver.Exists())
+                return null;
+
+            return driver;
+        }
+        catch (Exception ex)
+        {
+            ModLog.WriteException("TryGetDriver", ex);
+            return null;
+        }
+    }
+
+    // Coloca o veículo em condição de OBEDECER ao impulso.
+    //
+    // Escrever velocidade num carro que o jogo mantém suspenso não faz nada, e
+    // não faz nada em silêncio — nenhum erro, nenhum log, o carro simplesmente
+    // segue seu caminho como se o mod não existisse. Era a explicação mais
+    // provável para "vários veículos não tomam efeito mesmo com o motorista
+    // dentro": trânsito recém-nascido nasce parado e preso enquanto o jogo o
+    // encaixa na rua, e um carro estacionado por script fica congelado até
+    // alguém encostar nele.
+    //
+    private void WakeVehicle(Vehicle v)
+    {
+        try
+        {
+            // FreezePosition é só de ESCRITA nesta biblioteca — não há como
+            // perguntar se o carro está congelado, então a única opção é
+            // descongelar sempre. Uma native por carro por frame, que é a
+            // mesma ordem de grandeza do resto da varredura.
+            v.FreezePosition = false;
+
+            // Motor desligado não impede a escrita de velocidade, mas impede o
+            // carro de SEGURAR essa velocidade: sem motor ele desacelera de
+            // volta a zero entre um tick e outro, e o efeito vira um solavanco.
+            // Esta, ao contrário de FreezePosition, dá para ler — então só
+            // escreve quando há o que mudar.
+            if (!v.EngineRunning)
+                v.EngineRunning = true;
+        }
+        catch (Exception ex)
+        {
+            ModLog.WriteException("WakeVehicle", ex);
+        }
+    }
+
+    // Resumo periódico da varredura. É a resposta para "por que aquele carro
+    // não pegou o efeito?" — mostra quantos veículos existem, quantos entraram
+    // no raio, quantos receberam impulso e quantos foram recusados por cada
+    // filtro. Sai a cada TurboSweepLogIntervalMs para não inundar o log, e só
+    // quando alguma contagem muda, para não repetir a mesma linha parada.
+    private void LogTurboSweep(int seen, int inRange, int affected,
+        int skipNoDriver, int skipUpsideDown, int skipMission, int skipError)
+    {
+        int now = Game.GameTime;
+
+        if (now - _lastTurboLogTime < TurboSweepLogIntervalMs)
+            return;
+
+        string summary = "varredura turbo: total=" + seen
+            + " noRaio=" + inRange
+            + " impulsionados=" + affected
+            + " semMotorista=" + skipNoDriver
+            + " capotados=" + skipUpsideDown
+            + " missao=" + skipMission
+            + " erros=" + skipError;
+
+        if (summary == _lastTurboSummary)
+            return;
+
+        _lastTurboLogTime = now;
+        _lastTurboSummary = summary;
+        ModLog.Write(summary);
+    }
+
     private void ApplyTurboLogic()
     {
         UpdateTurboFrameScale();
@@ -623,12 +854,23 @@ public class NPCTurboBoost : Script
         bool magnetWanted = ModSettings.ChaosMagnetModeEnabled;
         bool freeRideWanted = ModSettings.ChaosFreeRideModeEnabled;
 
+        bool driverlessWanted = ModSettings.ChaosAffectDriverlessVehicles;
+
         var freedThisTick = new HashSet<Ped>(PedByHandle);
+
+        // Contadores da varredura — sem eles, "vários veículos não pegam o
+        // efeito" é impossível de investigar: não dá para saber se o carro foi
+        // recusado por algum filtro, e por qual, ou se recebeu o impulso e a
+        // física é que não obedeceu. Vão para o log a cada poucos segundos.
+        int seen = 0, inRange = 0, affected = 0;
+        int skipNoDriver = 0, skipUpsideDown = 0, skipMission = 0, skipError = 0;
 
         foreach (Vehicle v in World.GetAllVehicles())
         {
             if (v == null || !v.Exists())
                 continue;
+
+            seen++;
 
             // Nunca alterar carro do player
             if (playerInVehicle && v == playerVeh)
@@ -638,57 +880,107 @@ public class NPCTurboBoost : Script
             if (Player.Character.Position.DistanceTo(v.Position) > radius)
                 continue;
 
-            // Só afeta veículos que realmente têm NPC dentro (ignora carros
-            // estacionados). isSeatFree ANTES de pedir o ped: mesma proteção de
-            // GetOccupants e IsDebris — GetPedOnSeat não valida o assento e
-            // devolve um handle lixo que passa por Exists() e derruba o jogo no
-            // primeiro native de verdade. Aqui a guarda importa ainda mais, por
-            // ser o caminho que roda para todo veículo do raio, todo frame.
-            if (v.isSeatFree(VehicleSeat.Driver))
-                continue;
+            inRange++;
 
-            Ped driver = v.GetPedOnSeat(VehicleSeat.Driver);
-
-            if (driver == null || !driver.Exists())
-                continue;
-
-            if (driver == Player.Character)
-                continue;
-
-            // Nunca mexer em veículo/ped marcado como necessário para missão
-            // (perseguições, alvos, etc.) — evita quebrar progressão de missão.
-            if (v.isRequiredForMission || driver.isRequiredForMission)
-                continue;
-
-            // Não turbar veículo capotado. NÃO exigir isOnAllWheels aqui: o
-            // Modo Legado é cumulativo e só escala se for reaplicado a cada
-            // tick — e o primeiro empurrão já tira as rodas do chão, então
-            // exigir "nas quatro rodas" cancelava todos os empurrões
-            // seguintes e matava justamente o efeito original do modo.
-            if (v.isUpsideDown)
-                continue;
-
-            // Cada modo é aplicado por um método próprio que desconhece os
-            // outros — evita que a mecânica de um vaze para o outro. A ordem
-            // é a composição combinada: Legado, Velocidade Máxima e Solto
-            // mexem na velocidade; o Ímã, por último, redireciona o resultado.
-            // Combinar Ímã com Solto dá carros sem IA sendo arrastados até o
-            // jogador; Solto sozinho é o carro entregue à física pura.
-            if (legacyWanted)
-                ApplyLegacyBoost(v);
-
-            if (maxSpeedWanted)
-                ApplyMaxSpeedMode(v);
-
-            if (freeRideWanted)
+            // Isolamento por veículo: um handle problemático faz ESTE carro ser
+            // pulado, não o tick inteiro morrer — o mesmo padrão já usado na
+            // limpeza de detritos. Antes, um único carro ruim derrubava o
+            // impulso de todos os outros naquele frame, o que é exatamente o
+            // sintoma "vários veículos não tomam efeito".
+            try
             {
-                ApplyFreeRideMode(v, driver);
-                freedThisTick.Add(driver);
-            }
+                // O motorista é pedido DIRETO, sem passar por isSeatFree.
+                //
+                // A guarda de assento existe para os bancos de PASSAGEIRO, que
+                // um modelo pode não ter (ver GetOccupants). O banco do
+                // motorista todo veículo tem — então ali ela não protegia de
+                // nada e só acrescentava mais um native capaz de responder
+                // "livre" e fazer um carro com motorista ser pulado em
+                // silêncio. Quem valida o resultado é o Exists() abaixo.
+                Ped driver = TryGetDriver(v);
 
-            if (magnetWanted)
-                ApplyMagnetMode(v);
+                if (driver != null && driver == Player.Character)
+                    continue;
+
+                // Sem motorista: carro estacionado, ou o motorista ainda não
+                // foi carregado pelo jogo. Com "afetar sem motorista" ligado
+                // (o padrão), o impulso vale igual — é o que faz TODO veículo
+                // do raio carregar o efeito, inclusive os que acabaram de
+                // aparecer e ainda não têm ninguém ao volante.
+                if (driver == null && !driverlessWanted)
+                {
+                    skipNoDriver++;
+                    continue;
+                }
+
+                // Veículo/ped marcado como necessário para missão (o carro
+                // perseguido, o alvo, o comparsa). Ligado — que é o padrão —, os
+                // impulsos alcançam a perseguição também: é onde o caos no
+                // trânsito faz mais graça, e o carro do alvo imune ao turbo
+                // destoava de tudo o mais que se move na tela.
+                //
+                // O risco é real e é do jogador: empurrar o alvo pode jogá-lo para
+                // longe do trajeto que o script da missão espera, e uma missão
+                // pode ficar impossível de completar. Por isso é opção, e por isso
+                // ela se limita aos impulsos — invencibilidade e limpeza de
+                // detritos continuam respeitando a marcação, sempre.
+                if (!ModSettings.ChaosAffectMissionVehicles
+                    && (v.isRequiredForMission || (driver != null && driver.isRequiredForMission)))
+                {
+                    skipMission++;
+                    continue;
+                }
+
+                // Não turbar veículo capotado. NÃO exigir isOnAllWheels aqui: o
+                // Modo Legado é cumulativo e só escala se for reaplicado a cada
+                // tick — e o primeiro empurrão já tira as rodas do chão, então
+                // exigir "nas quatro rodas" cancelava todos os empurrões
+                // seguintes e matava justamente o efeito original do modo.
+                if (v.isUpsideDown)
+                {
+                    skipUpsideDown++;
+                    continue;
+                }
+
+                // Tira o veículo de qualquer estado em que ele ignoraria o
+                // impulso — ver WakeVehicle. É isto que faz carro recém-nascido
+                // no trânsito entrar no efeito junto com os outros, em vez de
+                // ficar imune até o jogo resolver simulá-lo por conta própria.
+                WakeVehicle(v);
+
+                // Cada modo é aplicado por um método próprio que desconhece os
+                // outros — evita que a mecânica de um vaze para o outro. A ordem
+                // é a composição combinada: Legado, Velocidade Máxima e Solto
+                // mexem na velocidade; o Ímã, por último, redireciona o resultado.
+                // Combinar Ímã com Solto dá carros sem IA sendo arrastados até o
+                // jogador; Solto sozinho é o carro entregue à física pura.
+                if (legacyWanted)
+                    ApplyLegacyBoost(v);
+
+                if (maxSpeedWanted)
+                    ApplyMaxSpeedMode(v);
+
+                if (freeRideWanted)
+                {
+                    ApplyFreeRideMode(v, driver);
+
+                    if (driver != null)
+                        freedThisTick.Add(driver);
+                }
+
+                if (magnetWanted)
+                    ApplyMagnetMode(v);
+
+                affected++;
+            }
+            catch (Exception ex)
+            {
+                skipError++;
+                ModLog.WriteException("ApplyTurboLogic.veiculo", ex);
+            }
         }
+
+        LogTurboSweep(seen, inRange, affected, skipNoDriver, skipUpsideDown, skipMission, skipError);
 
         // Motorista que saiu do raio, ou o modo inteiro desligado: a IA volta.
         if (freeRideWanted)
@@ -761,6 +1053,43 @@ public class NPCTurboBoost : Script
         _appliedCrumple = crumpleWanted;
 
         RestoreVehiclesNotTouched(touchedThisTick);
+    }
+
+    // Invencibilidade do JOGADOR — passada própria, independente de tudo o que
+    // acontece com o trânsito.
+    //
+    // Ligada, é reemitida a cada tick em vez de só na mudança: o jogo repõe as
+    // flags do personagem sozinho em vários momentos (troca de roupa, início e
+    // fim de missão, hospital, cutscene), e um "aplica uma vez" silenciosamente
+    // deixaria de valer no primeiro deles. São duas natives por frame — barato
+    // perto de morrer achando que estava invencível.
+    private void ApplyPlayerInvincibility()
+    {
+        bool wanted = ModSettings.PlayerInvincible;
+
+        if (!wanted && !_appliedPlayerInvincible)
+            return;
+
+        try
+        {
+            Ped player = Player.Character;
+
+            if (player == null || !player.Exists())
+                return;
+
+            // Invincible sozinho corta o dano de vida, mas fogo e explosão
+            // continuam derrubando o personagem — mesma lição já aprendida com
+            // os veículos em ApplyDamageState. MakeProofTo(balas, fogo,
+            // explosões, colisões, corpo a corpo) é o que fecha o resto.
+            player.Invincible = wanted;
+            player.MakeProofTo(wanted, wanted, wanted, wanted, wanted);
+
+            _appliedPlayerInvincible = wanted;
+        }
+        catch (Exception ex)
+        {
+            ModLog.WriteException("ApplyPlayerInvincibility", ex);
+        }
     }
 
     private void ApplyDamageState(Vehicle v, bool invincible, bool crumple)
@@ -898,6 +1227,15 @@ public class NPCTurboBoost : Script
         if (key == Keys.F6)
         {
             ElevatePeds();
+            return;
+        }
+
+        // Conserto pela tecla, e não só pela aba Configurações: o momento em
+        // que o carro precisa ser consertado é justamente dirigindo, e abrir o
+        // HUD trava o personagem no meio da rua.
+        if (key == Keys.F7)
+        {
+            Game.DisplayText(PlayerActions.RepairCurrentVehicle(), 2500);
         }
     }
 
@@ -969,8 +1307,10 @@ public class NPCTurboBoost : Script
             + " modoIma=" + ModSettings.ChaosMagnetModeEnabled + "/" + ModSettings.ChaosMagnetPull
             + " modoSolto=" + ModSettings.ChaosFreeRideModeEnabled + "/" + ModSettings.ChaosFreeRidePush
             + " raio=" + ModSettings.ChaosRadius
+            + " afetaMissao=" + ModSettings.ChaosAffectMissionVehicles
             + " escalaFrame=" + _turboFrameScale.ToString("0.00")
             + " motoristasSemIA=" + _freedDrivers.Count
+            + " playerInvencivel=" + ModSettings.PlayerInvincible
             + " invencivel=" + ModSettings.ChaosInvincible
             + " amassa=" + ModSettings.ChaosCrumple
             + " veicAlterados=" + _tweakedVehicles.Count);
@@ -1000,6 +1340,7 @@ public class NPCTurboBoost : Script
             // Fora do if de propósito: invencibilidade e deformação valem por
             // si só, sem exigir nenhum modo de movimento ligado.
             ApplyDamageFlags();
+            ApplyPlayerInvincibility();
             CleanupOffscreenDebris();
         }
         catch (Exception ex)

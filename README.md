@@ -8,21 +8,27 @@ O TurboTraffic-IV é um mod que modifica o comportamento dos veículos controlad
 
 ### Funcionalidades
 
-- **Caos no Trânsito**: Aplica velocidade turbo aos veículos controlados por NPCs dentro de um raio configurável ao redor do jogador. Só afeta veículos com NPC ao volante — carro estacionado e vazio fica de fora. **Vem desligado por padrão** — ligue pela aba Configurações do HUD (a escolha fica salva entre sessões). São quatro modos independentes, que podem ser combinados:
-  - **Modo Legado (empurrão)**: empurrão aditivo e cumulativo a cada frame, sem teto — o formato original do mod
-  - **Modo Velocidade Máxima**: fixa a velocidade direto no alvo, como um cruzeiro constante
-  - **Modo Ímã (perseguição)**: redireciona o trânsito para cima do jogador. Não decide velocidade — só a direção — então combina com os outros: eles definem o "quão rápido", o Ímã define o "para onde"
-  - **Modo Solto (sem IA)**: empurrão de **largada**, não um efeito contínuo. Desliga o trajeto da IA do motorista e empurra o carro sem recolocá-lo no eixo frontal, deixando a física resolver sozinha — o veículo deriva, roda e escorrega em vez de ser corrigido a cada frame. Desligar o trajeto também tira o motorista do banco; como o mod só age sobre veículos com NPC ao volante, o carro sai do alcance do mod logo depois e segue pela inércia. Os outros três modos, que não encostam no motorista, é que são contínuos
+- **Caos no Trânsito**: aplica impulsos aos veículos dentro de um raio configurável ao redor do jogador. **Vem desligado por padrão** — ligue pela aba Configurações do HUD (a escolha fica salva entre sessões). São quatro modos independentes, que podem ser combinados:
+  - **Modo Legado (empurrão)**: soma um empurrão ao eixo do nariz do carro a cada frame, sem teto — o formato original do mod. O que é somado é a velocidade que o carro já tem *na direção para onde aponta*, então derrapagem lateral e queda não viram combustível para o impulso
+  - **Modo Velocidade Máxima**: leva o carro até a velocidade alvo e o mantém lá. A subida é uma **rampa de ~1,5 s**, não um salto: o carro acelera, uma batida realmente o segura, e ele volta a acelerar depois
+  - **Modo Ímã (perseguição)**: **curva** o trânsito na direção do jogador. Não decide velocidade — só a direção — então combina com os outros: eles definem o "quão rápido", o Ímã define o "para onde". A direção é corrigida aos poucos (cerca de meio segundo), então o carro descreve uma curva em vez de trocar de rumo no meio da rua
+  - **Modo Solto (sem IA)**: desliga o trajeto da IA do motorista e empurra o carro sem recolocá-lo no eixo frontal, deixando a física resolver sozinha — o veículo deriva, roda e escorrega em vez de ser corrigido a cada frame
+- **Física dos impulsos**: todo empurrão é aplicado de duas formas ao mesmo tempo — escrita de velocidade (determinística, funciona mesmo com a IA do motorista puxando para o outro lado) e uma **força de verdade** na simulação, que é o que faz a suspensão comprimir e o nariz levantar. É a diferença entre o carro ser *empurrado* e ser *reposicionado*
+- **Compensação de taxa de quadros**: os impulsos acumulativos são escalados pelo tempo de frame e normalizados em 60fps, então o mesmo valor de Força rende o mesmo efeito a 30 ou 60fps
+- **Alcance forçado**: por padrão, **todo veículo do raio recebe o efeito** — com motorista, sem motorista, recém-spawnado ou de missão. Antes de cada impulso o veículo é descongelado e tem o motor ligado, porque carro congelado ou com motor desligado ignora a velocidade escrita nele em silêncio. As três exceções: o carro do jogador, veículos capotados, e o que estiver fora do raio
 - **Limpeza de detritos**: sucata fora do campo de visão do jogador é apagada automaticamente para liberar vagas de tráfego, mantendo o fluxo de veículos novos constante em vez de deixar a rua entupida de carcaças. Nada some na tela — só é candidato o que o jogador não está olhando, e a pelo menos 30 m. Os ocupantes são apagados junto com o veículo, senão o jogo os deposita no chão onde o carro estava. Ligada por padrão, desligável na aba Configurações
 
-> ⚠️ **Limitação conhecida — peds a mais nas ruas.** A limpeza de detritos pode acabar contribuindo para o aparecimento de mais pedestres que o normal pela cidade. O efeito só se manifesta junto com o **Modo Solto (sem IA)**, que é o único modo que tira o motorista do carro: a partir daí sobram peds soltos que a limpeza nem sempre alcança. O mod já apaga os ocupantes junto com a sucata e remove os motoristas que ele mesmo ejetou (fora da tela e a mais de 30 m), mas a cobertura ainda não é completa. Os outros três modos não são afetados. Se incomodar, desligue **Limpar detritos fora de vista** ou o **Modo Solto** na aba Configurações. Fica para um acerto melhor mais adiante.
+> ⚠️ **Limitação conhecida — peds a mais nas ruas.** A limpeza de detritos pode acabar contribuindo para o aparecimento de mais pedestres que o normal pela cidade. O efeito só se manifesta junto com o **Modo Solto (sem IA)**, que é o único modo que tira o motorista do controle do carro: a partir daí sobram peds soltos que a limpeza nem sempre alcança. O mod já apaga os ocupantes junto com a sucata e remove os motoristas que ele mesmo ejetou (fora da tela e a mais de 30 m), mas a cobertura ainda não é completa. Os outros três modos não são afetados. Se incomodar, desligue **Limpar detritos fora de vista** ou o **Modo Solto** na aba Configurações. Fica para um acerto melhor mais adiante.
+
 - **HUD do Mod (F1)**: painel no canto superior esquerdo da tela com 3 abas:
   - **Comandos**: legenda de todas as teclas do mod e o que cada uma faz
   - **Spawn de Veículos**: escolha entre dezenas de veículos organizados por categoria e spawne dentro ou fora do carro
-  - **Configurações**: liga/desliga cada modo do caos no trânsito, ajusta o raio de alcance e os parâmetros de cada modo, e controla invencibilidade, deformação e a limpeza de detritos, com os valores salvos entre sessões. Invencibilidade e deformação valem por si só — não exigem nenhum modo de movimento ligado. A lista é maior que a área visível, então rola conforme você navega, com o contador `n/total` no rodapé
+  - **Configurações**: as 16 opções do mod (ver [Configurações](#️-configurações)), salvas entre sessões. A lista é maior que a área visível, então rola conforme você navega, com o contador `n/total` no rodapé
 - **Popup de tutorial**: ao carregar o mundo, o jogo mostra uma dica (no estilo nativo do GTA) ensinando a abrir o HUD com F1
 - **Elevação de Peds**: eleva todos os peds (incluindo o jogador) em 1 unidade (ativado com F6)
-- **Explosão do Jogador**: cria uma explosão na posição do jogador (ativado com F5)
+- **Explosão do Jogador**: cria uma explosão na posição do jogador (ativado com F5). Com o player invencível ligado, a explosão acontece e o jogador sai dela de pé
+- **Consertar Veículo**: repara o veículo em que o jogador está — lataria, motor, tanque, pneus furados e portas (ativado com F7, ou pela aba Configurações)
+- **Player Invencível**: o jogador não perde vida e não morre — opção liga/desliga na aba Configurações, salva entre sessões
 
 ## 🎮 Requisitos
 
@@ -51,6 +57,7 @@ TurboTraffic-IV/
 └── ResetHandling/         # Código fonte C# do mod principal
     ├── ResetVehicleScript.cs  # Orquestrador: liga teclas, tick e desenho do HUD
     ├── Config/                # Caminhos, log e persistência das configurações
+    ├── Core/                  # Ações do jogador e identidade de handles em coleções
     ├── Keybinds/              # Registro único das teclas do mod (usado pela aba Comandos)
     ├── Vehicles/              # Catálogo de veículos disponíveis para spawn
     ├── Hud/                   # HUD (painel + abas Comandos/Spawn/Configurações)
@@ -101,6 +108,7 @@ Para instruções detalhadas de instalação manual, consulte o arquivo [INSTALL
 - **F1**: Abre/fecha o HUD do TurboTraffic-IV (Comandos, Spawn de Veículos, Configurações)
 - **F5**: Explode o jogador na posição atual
 - **F6**: Eleva todos os peds (incluindo o jogador) em 1 unidade
+- **F7**: Conserta o veículo em que o jogador está
 
 O caos no trânsito (turbo nos veículos de NPCs) começa **desligado**: abra o HUD com F1, vá até a aba **Configurações** e ligue. A partir daí ele é aplicado automaticamente aos veículos próximos, e a escolha fica salva para as próximas sessões.
 
@@ -117,7 +125,65 @@ Enquanto o HUD está aberto, o controle do personagem fica travado, para que as 
 
 Essas teclas ficam listadas dentro do próprio HUD, na aba **Comandos**, e o rodapé do painel repete o essencial: a troca de aba pelo **Tab** não é descoberta sozinha se não estiver escrita na tela.
 
-As configurações ajustadas na aba **Configurações** ficam salvas em `Documentos\TurboTraffic-IV\ResetHandling.ini` e persistem entre sessões. Elas ficam aí, e não na pasta do jogo, porque instalações em `C:\Program Files (x86)\...` só aceitam escrita com elevação — gravar lá falharia em silêncio.
+As configurações ficam salvas em `Documentos\TurboTraffic-IV\ResetHandling.ini` — e não na pasta do jogo, porque instalações em `C:\Program Files (x86)\...` só aceitam escrita com elevação e gravar lá falharia em silêncio. O arquivo é gravado com o nome da opção como seção e `TurboTraffic` como chave; parece invertido, mas é a ordem de parâmetros da API do ScriptHookDotNet, e leitura e escrita usam a mesma.
+
+## ⚙️ Configurações
+
+Tudo é ajustado na aba **Configurações** do HUD (F1 → Tab até Configurações). **←/→** ajustam valores e ligam/desligam (→ liga, ← desliga), **Enter** alterna a opção selecionada. Os valores ficam salvos em `Documentos\TurboTraffic-IV\ResetHandling.ini` e voltam na sessão seguinte.
+
+### Alcance — quais veículos os modos pegam
+
+| Opção | Padrão | O que faz |
+|---|---|---|
+| Raio de alcance | 120 m | Distância a partir do jogador em que os modos agem. 20–500 m |
+| Afetar veículos de missão | Sim | Inclui carros de missão (perseguições, alvos). Vale **só para os impulsos** — invencibilidade e limpeza de detritos nunca tocam em veículo de missão. Desligue se alguma missão ficar impossível de completar |
+| Afetar veículos sem motorista | Sim | Inclui carros vazios: estacionados, e os que acabaram de nascer no trânsito e ainda não têm ninguém ao volante. Desligue se quiser só o trânsito em movimento |
+
+### Modos de impulso
+
+| Opção | Padrão | O que faz |
+|---|---|---|
+| Modo Legado (empurrão) | Desativado | Empurrão aditivo e cumulativo no eixo do nariz, sem teto |
+| Força de aceleração | 70 m/s por seg | Quanto o Legado soma por segundo. 10–200 |
+| Modo Velocidade Máxima | Desativado | Acelera o carro até a velocidade alvo e o mantém lá |
+| Velocidade alvo | 150 m/s (540 km/h) | Alvo do modo acima, atingido numa rampa de ~1,5 s. 10–400 m/s |
+| Modo Ímã (perseguição) | Desativado | Curva o trânsito na direção do jogador; não decide velocidade |
+| Força de atração | 80 m/s (288 km/h) | Piso de velocidade usado quando o carro está lento demais para ser puxado. 10–300 m/s |
+| Modo Solto (sem IA) | Desativado | Desliga o trajeto da IA do motorista e entrega o carro à física |
+| Impulso do modo solto | 25 m/s por seg | Quanto o Solto soma por segundo. 5–200 |
+
+Os quatro modos são independentes e combináveis. Quando mais de um está ligado, a ordem de aplicação é fixa: Legado, Velocidade Máxima e Solto decidem *quão rápido*; o Ímã, por último, decide *para onde*.
+
+### Dano e limpeza
+
+| Opção | Padrão | O que faz |
+|---|---|---|
+| Veículos invencíveis | Desativado | Blinda os veículos do raio contra balas, fogo, explosão, colisão e coronhada. Vale por si só, sem nenhum modo de movimento ligado |
+| Permitir amassar | Ativado | Deformação visual da lataria. Desligado = lataria indeformável. Invencível manda na deformação: carro blindado não amassa |
+| Limpar detritos fora de vista | Ativado | Apaga sucata fora do campo de visão para liberar vagas de tráfego. É otimização, não efeito |
+
+### Jogador
+
+| Opção | Padrão | O que faz |
+|---|---|---|
+| Player invencível (não morre) | Desativado | O personagem não perde vida e não morre — inclusive contra o F5 do próprio mod |
+| Consertar veículo do player | — | Ação, não configuração: **Enter** conserta na hora o veículo em que você está. Mesma coisa que o **F7** |
+
+## 🔍 Quando o efeito não pega em algum carro
+
+O mod escreve no log um resumo da varredura a cada 5 segundos (só quando algum número muda), em `Documentos\TurboTraffic-IV\TurboTrafficIV.log`:
+
+```
+varredura turbo: total=132 noRaio=18 impulsionados=17 semMotorista=0 capotados=1 missao=0 erros=0
+```
+
+- `total` — veículos que existem no mundo
+- `noRaio` — quantos estão dentro do raio configurado
+- `impulsionados` — quantos receberam impulso neste tick
+- `semMotorista`, `capotados`, `missao`, `erros` — quantos foram recusados, e por qual filtro
+
+Se `noRaio` for muito menor que o esperado, aumente o **Raio de alcance**. Se `impulsionados` for menor que `noRaio`, a diferença está inteira nas quatro colunas de recusa — cada uma corresponde a uma opção ou a uma regra fixa (capotado e o carro do jogador nunca recebem impulso).
+
 
 ## 📝 Créditos
 
@@ -154,6 +220,7 @@ Se o mod não funcionar:
 6. Se o instalador travar dizendo que o jogo está em execução, feche o GTA IV e rode o instalador de novo
 7. Se a detecção automática não encontrar sua instalação (ex.: aparece "Múltiplas instalações" sem nenhuma listada), use `-GamePath` apontando para a pasta onde está o `GTAIV.exe`/`EFLC.exe` — o instalador também aceita a pasta um nível acima (ex. a pasta "Grand Theft Auto IV" da Complete Edition da Steam, que contém uma subpasta `GTAIV\`)
 8. Se o HUD não aparecer ao apertar F1: o mod mostra "TurboTraffic-IV: HUD aberto" com o texto nativo do jogo ao receber a tecla. Se esse texto aparece mas o painel não, o problema é no desenho; se nem o texto aparece, a tecla não chegou. Detalhes em `Documentos\TurboTraffic-IV\TurboTrafficIV.log`
+9. Se algum veículo não estiver pegando o efeito dos modos, veja [Quando o efeito não pega em algum carro](#-quando-o-efeito-não-pega-em-algum-carro) — o log diz quantos veículos entraram no raio e por qual filtro cada um foi recusado
 
 Para mais detalhes, consulte [INSTALL.md](INSTALL.md).
 

@@ -44,6 +44,23 @@ public static class ModSettings
     // duplicado por modo — evita que o menu infle a cada modo novo.
     public static float ChaosRadius { get; private set; }
 
+    // Se os modos de movimento também alcançam veículos marcados como
+    // necessários para missão (o carro perseguido, o alvo, o comparsa).
+    //
+    // Vale SÓ para os impulsos. A invencibilidade e a limpeza de detritos
+    // continuam respeitando a marcação de missão em qualquer caso: empurrar o
+    // carro do alvo muda a perseguição, mas blindá-lo ou apagá-lo trava a
+    // missão de vez, sem volta.
+    public static bool ChaosAffectMissionVehicles { get; private set; }
+
+    // Se os impulsos também alcançam veículos SEM ninguém ao volante.
+    //
+    // Ligado, todo veículo do raio carrega o efeito — inclusive o carro que
+    // acabou de nascer no trânsito e cujo motorista o jogo ainda não colocou
+    // no banco, que era um dos casos em que o impulso parecia "não pegar".
+    // O preço é que carro estacionado também sai voando.
+    public static bool ChaosAffectDriverlessVehicles { get; private set; }
+
     // Modo Legado: empurrão aditivo e cumulativo (v = v + forward*Força),
     // sem teto. Independente do Modo Velocidade Máxima abaixo.
     public static bool ChaosEnabled { get; private set; }
@@ -77,11 +94,27 @@ public static class ModSettings
     // deixar a rua entupida de carcaças.
     public static bool ChaosDebrisCleanup { get; private set; }
 
+    // Invencibilidade do JOGADOR — não confundir com ChaosInvincible, que vale
+    // para os veículos de NPC no raio. Esta é sobre o personagem: com ela
+    // ligada, ele não perde vida e não morre.
+    public static bool PlayerInvincible { get; private set; }
+
     public static void Load()
     {
         // Defaults usados caso o .ini ainda não exista. O caos no trânsito nasce
         // DESLIGADO: o mod só passa a agir depois que o jogador ligar pelo HUD.
         ChaosRadius = 120.0f;
+
+        // Nasce LIGADA: a perseguição é justamente onde o caos no trânsito faz
+        // mais graça, e deixar o carro do alvo imune ao turbo destoava de tudo
+        // o mais que se move na tela.
+        ChaosAffectMissionVehicles = true;
+
+        // Nasce LIGADA: "forçar todos os veículos" é o comportamento pedido —
+        // nenhum carro do raio deve ficar de fora do efeito por um detalhe de
+        // quem está (ou ainda não está) no banco do motorista.
+        ChaosAffectDriverlessVehicles = true;
+
         ChaosEnabled = false;
         ChaosTurboPower = 70.0f;
         ChaosMaxSpeedModeEnabled = false;
@@ -100,12 +133,18 @@ public static class ModSettings
         // Limpeza de detritos nasce LIGADA: é otimização, não efeito.
         ChaosDebrisCleanup = true;
 
+        // Invencibilidade do jogador nasce DESLIGADA: tira toda a dificuldade
+        // do jogo, então tem que ser uma escolha explícita.
+        PlayerInvincible = false;
+
         try
         {
             _file = SettingsFile.Open(ModPaths.SettingsFilePath);
             _file.Load();
 
             ChaosRadius = Clamp(_file.GetValueFloat(Category, "ChaosRadius", 120.0f), ChaosRadiusMin, ChaosRadiusMax);
+            ChaosAffectMissionVehicles = _file.GetValueBool(Category, "ChaosAffectMissionVehicles", true);
+            ChaosAffectDriverlessVehicles = _file.GetValueBool(Category, "ChaosAffectDriverlessVehicles", true);
             ChaosEnabled = _file.GetValueBool(Category, "ChaosEnabled", false);
             ChaosTurboPower = Clamp(_file.GetValueFloat(Category, "ChaosTurboPower", 70.0f), ChaosTurboPowerMin, ChaosTurboPowerMax);
             ChaosMaxSpeedModeEnabled = _file.GetValueBool(Category, "ChaosMaxSpeedModeEnabled", false);
@@ -117,6 +156,7 @@ public static class ModSettings
             ChaosInvincible = _file.GetValueBool(Category, "ChaosInvincible", false);
             ChaosCrumple = _file.GetValueBool(Category, "ChaosCrumple", true);
             ChaosDebrisCleanup = _file.GetValueBool(Category, "ChaosDebrisCleanup", true);
+            PlayerInvincible = _file.GetValueBool(Category, "PlayerInvincible", false);
         }
         catch (System.Exception ex)
         {
@@ -125,17 +165,31 @@ public static class ModSettings
         }
 
         ModLog.Write("Config carregada: raio=" + ChaosRadius
+            + " afetaMissao=" + ChaosAffectMissionVehicles + " afetaSemMotorista=" + ChaosAffectDriverlessVehicles
             + " legado=" + ChaosEnabled + " forca=" + ChaosTurboPower
             + " modoVelMax=" + ChaosMaxSpeedModeEnabled + " velAlvo=" + ChaosMaxSpeed
             + " modoIma=" + ChaosMagnetModeEnabled + " atracao=" + ChaosMagnetPull
             + " modoSolto=" + ChaosFreeRideModeEnabled + " impulso=" + ChaosFreeRidePush
             + " invencivel=" + ChaosInvincible + " amassa=" + ChaosCrumple
-            + " limpaDetritos=" + ChaosDebrisCleanup);
+            + " limpaDetritos=" + ChaosDebrisCleanup
+            + " playerInvencivel=" + PlayerInvincible);
     }
 
     public static void ToggleChaosEnabled()
     {
         ChaosEnabled = !ChaosEnabled;
+        Persist();
+    }
+
+    public static void ToggleChaosAffectDriverlessVehicles()
+    {
+        ChaosAffectDriverlessVehicles = !ChaosAffectDriverlessVehicles;
+        Persist();
+    }
+
+    public static void ToggleChaosAffectMissionVehicles()
+    {
+        ChaosAffectMissionVehicles = !ChaosAffectMissionVehicles;
         Persist();
     }
 
@@ -187,6 +241,12 @@ public static class ModSettings
         Persist();
     }
 
+    public static void TogglePlayerInvincible()
+    {
+        PlayerInvincible = !PlayerInvincible;
+        Persist();
+    }
+
     public static void ToggleChaosInvincible()
     {
         ChaosInvincible = !ChaosInvincible;
@@ -213,6 +273,8 @@ public static class ModSettings
         try
         {
             _file.SetValue(Category, "ChaosRadius", ChaosRadius);
+            _file.SetValue(Category, "ChaosAffectMissionVehicles", ChaosAffectMissionVehicles);
+            _file.SetValue(Category, "ChaosAffectDriverlessVehicles", ChaosAffectDriverlessVehicles);
             _file.SetValue(Category, "ChaosEnabled", ChaosEnabled);
             _file.SetValue(Category, "ChaosTurboPower", ChaosTurboPower);
             _file.SetValue(Category, "ChaosMaxSpeedModeEnabled", ChaosMaxSpeedModeEnabled);
@@ -224,6 +286,7 @@ public static class ModSettings
             _file.SetValue(Category, "ChaosInvincible", ChaosInvincible);
             _file.SetValue(Category, "ChaosCrumple", ChaosCrumple);
             _file.SetValue(Category, "ChaosDebrisCleanup", ChaosDebrisCleanup);
+            _file.SetValue(Category, "PlayerInvincible", PlayerInvincible);
             _file.Save();
         }
         catch (System.Exception ex)

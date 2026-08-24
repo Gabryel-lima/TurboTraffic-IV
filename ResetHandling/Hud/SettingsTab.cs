@@ -8,27 +8,40 @@ public class SettingsTab : IHudTab
     // Índices fixos usados em Confirm/AdjustValue/GetValueLabel — mantidos
     // como consts para não perder a correspondência ao reordenar linhas.
     private const int RowRadius = 0;
-    private const int RowLegacyEnabled = 1;
-    private const int RowLegacyPower = 2;
-    private const int RowMaxSpeedEnabled = 3;
-    private const int RowMaxSpeedTarget = 4;
-    private const int RowMagnetEnabled = 5;
-    private const int RowMagnetPull = 6;
-    private const int RowFreeRideEnabled = 7;
-    private const int RowFreeRidePush = 8;
-    private const int RowInvincible = 9;
-    private const int RowCrumple = 10;
-    private const int RowDebrisCleanup = 11;
+    private const int RowAffectMission = 1;
+    private const int RowAffectDriverless = 2;
+    private const int RowLegacyEnabled = 3;
+    private const int RowLegacyPower = 4;
+    private const int RowMaxSpeedEnabled = 5;
+    private const int RowMaxSpeedTarget = 6;
+    private const int RowMagnetEnabled = 7;
+    private const int RowMagnetPull = 8;
+    private const int RowFreeRideEnabled = 9;
+    private const int RowFreeRidePush = 10;
+    private const int RowInvincible = 11;
+    private const int RowCrumple = 12;
+    private const int RowDebrisCleanup = 13;
+    private const int RowPlayerInvincible = 14;
+    private const int RowRepairVehicle = 15;
 
     private static readonly string[] Rows =
     {
+        // As três primeiras definem QUAIS veículos os modos alcançam — ficam
+        // juntas, e antes dos modos, porque valem para todos eles.
         "Raio de alcance",
+        "Afetar veículos de missão",
+        "Afetar veículos sem motorista",
         "Modo Legado (empurrão)", "Força de aceleração",
         "Modo Velocidade Máxima", "Velocidade alvo",
         "Modo Ímã (perseguição)", "Força de atração",
         "Modo Solto (sem IA)", "Impulso do modo solto",
         "Veículos invencíveis", "Permitir amassar",
-        "Limpar detritos fora de vista"
+        "Limpar detritos fora de vista",
+        // As duas últimas são sobre o JOGADOR, não sobre o trânsito — daí
+        // ficarem agrupadas no fim, longe de "Veículos invencíveis", que é o
+        // nome mais fácil de confundir com a invencibilidade do personagem.
+        "Player invencível (não morre)",
+        "Consertar veículo do player"
     };
 
     private const float ValueColumnOffset = 340f;
@@ -50,6 +63,12 @@ public class SettingsTab : IHudTab
     {
         switch (_selectedIndex)
         {
+            case RowAffectMission:
+                ModSettings.ToggleChaosAffectMissionVehicles();
+                break;
+            case RowAffectDriverless:
+                ModSettings.ToggleChaosAffectDriverlessVehicles();
+                break;
             case RowLegacyEnabled:
                 ModSettings.ToggleChaosEnabled();
                 break;
@@ -70,6 +89,17 @@ public class SettingsTab : IHudTab
                 break;
             case RowDebrisCleanup:
                 ModSettings.ToggleChaosDebrisCleanup();
+                break;
+            case RowPlayerInvincible:
+                ModSettings.TogglePlayerInvincible();
+                break;
+
+            // Única linha de AÇÃO da aba: não guarda estado, executa na hora.
+            // O texto nativo do jogo é a resposta — o HUD tapa justamente o
+            // canto da tela onde o veículo estaria, então sem a mensagem o
+            // jogador não tem como saber se o conserto aconteceu.
+            case RowRepairVehicle:
+                Game.DisplayText(PlayerActions.RepairCurrentVehicle(), 2500);
                 break;
         }
     }
@@ -93,6 +123,12 @@ public class SettingsTab : IHudTab
         {
             case RowRadius:
                 ModSettings.AdjustChaosRadius(direction * ModSettings.ChaosRadiusStep);
+                break;
+            case RowAffectMission:
+                SetBool(ModSettings.ChaosAffectMissionVehicles, target, ModSettings.ToggleChaosAffectMissionVehicles);
+                break;
+            case RowAffectDriverless:
+                SetBool(ModSettings.ChaosAffectDriverlessVehicles, target, ModSettings.ToggleChaosAffectDriverlessVehicles);
                 break;
             case RowLegacyEnabled:
                 SetBool(ModSettings.ChaosEnabled, target, ModSettings.ToggleChaosEnabled);
@@ -127,6 +163,13 @@ public class SettingsTab : IHudTab
             case RowDebrisCleanup:
                 SetBool(ModSettings.ChaosDebrisCleanup, target, ModSettings.ToggleChaosDebrisCleanup);
                 break;
+            case RowPlayerInvincible:
+                SetBool(ModSettings.PlayerInvincible, target, ModSettings.TogglePlayerInvincible);
+                break;
+
+            // RowRepairVehicle de fora de propósito: ← e → percorrem valores,
+            // e disparar um conserto ao encostar numa seta seria surpresa.
+            // A ação sai só no Enter.
         }
     }
 
@@ -180,6 +223,8 @@ public class SettingsTab : IHudTab
         switch (index)
         {
             case RowRadius: return ModSettings.ChaosRadius.ToString("0") + " m";
+            case RowAffectMission: return ModSettings.ChaosAffectMissionVehicles ? "Sim (inclui perseguição)" : "Não";
+            case RowAffectDriverless: return ModSettings.ChaosAffectDriverlessVehicles ? "Sim (inclui parados)" : "Não";
             case RowLegacyEnabled: return ModSettings.ChaosEnabled ? "Ativado" : "Desativado";
 
             // Força e impulso são somados à velocidade por segundo, não uma
@@ -196,6 +241,8 @@ public class SettingsTab : IHudTab
             case RowInvincible: return ModSettings.ChaosInvincible ? "Ativado" : "Desativado";
             case RowCrumple: return ModSettings.ChaosCrumple ? "Ativado" : "Desativado";
             case RowDebrisCleanup: return ModSettings.ChaosDebrisCleanup ? "Ativado" : "Desativado";
+            case RowPlayerInvincible: return ModSettings.PlayerInvincible ? "Ativado" : "Desativado";
+            case RowRepairVehicle: return "Enter (ou F7)";
             default: return string.Empty;
         }
     }
