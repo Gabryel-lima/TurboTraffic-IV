@@ -2,6 +2,17 @@ using GTA;
 
 public static class ModSettings
 {
+    // ATENÇÃO ao ler o .ini gerado: ele sai "de cabeça para baixo", com o nome
+    // da opção como seção e "TurboTraffic" como chave:
+    //
+    //     [ChaosRadius]
+    //     TurboTraffic=140.0000
+    //
+    // Não é bug. A assinatura da API do ScriptHookDotNet é
+    // GetValue(chave, seção, padrão) — chave primeiro, seção depois — e não o
+    // (seção, chave) habitual de arquivos .ini. Leitura e escrita usam a mesma
+    // ordem, então o round-trip é correto e os valores persistem. Trocar a
+    // ordem agora invalidaria todos os .ini já salvos dos jogadores.
     private const string Category = "TurboTraffic";
 
     public const float ChaosRadiusMin = 20.0f;

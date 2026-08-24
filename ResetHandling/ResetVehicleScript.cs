@@ -15,11 +15,18 @@ public class NPCTurboBoost : Script
         Keys.Enter, Keys.Escape, Keys.Space, Keys.Tab
     };
 
+    // Identidade por handle nativo. Toda coleção de Vehicle/Ped precisa deste
+    // comparador — o padrão do .NET compara por referência nesses tipos, e a
+    // biblioteca entrega um wrapper novo a cada tick para o mesmo carro. Ver
+    // HandleObjectComparer.cs.
+    private static readonly HandleObjectComparer<Vehicle> VehicleByHandle = new HandleObjectComparer<Vehicle>();
+    private static readonly HandleObjectComparer<Ped> PedByHandle = new HandleObjectComparer<Ped>();
+
     private readonly HudManager _hud = new HudManager();
     private readonly HashSet<Keys> _keysDownLastFrame = new HashSet<Keys>();
     // Veículos cujas flags de dano foram alteradas por este mod — precisam ser
     // devolvidas ao padrão quando saem do raio ou o efeito é desligado.
-    private readonly HashSet<Vehicle> _tweakedVehicles = new HashSet<Vehicle>();
+    private readonly HashSet<Vehicle> _tweakedVehicles = new HashSet<Vehicle>(VehicleByHandle);
 
     // Última combinação de dano já aplicada — usada para não reemitir os
     // mesmos natives em todo frame quando nada mudou. Começa no padrão do
@@ -30,7 +37,7 @@ public class NPCTurboBoost : Script
     // Motoristas com a IA de trajeto desligada pelo Modo Solto, e o instante
     // da última limpeza de tarefa de cada um — precisam ter a tarefa de
     // trânsito devolvida quando o modo acaba.
-    private readonly Dictionary<Ped, int> _freedDrivers = new Dictionary<Ped, int>();
+    private readonly Dictionary<Ped, int> _freedDrivers = new Dictionary<Ped, int>(PedByHandle);
 
     // Intervalo entre reemissões do "esqueça o trajeto". Curto o bastante para
     // a IA nunca retomar o volante, longo o bastante para o motorista chegar a
@@ -44,6 +51,26 @@ public class NPCTurboBoost : Script
     private const int DebrisMaxDeletionsPerSweep = 12;
 
     private int _lastDebrisSweepTime;
+
+    // Os modos que ACUMULAM velocidade (Legado e Solto) somam o empurrão uma
+    // vez por tick, e o tick roda uma vez por frame (Interval = 0). Sem
+    // compensar o tempo de frame, a mesma "Força" rendia o dobro de velocidade
+    // a 60fps do que a 30fps — o número do HUD não significava nada fixo.
+    //
+    // A escala é normalizada em 60fps de propósito: a 60fps ela vale 1.0, então
+    // os valores já salvos no .ini continuam produzindo exatamente o efeito a
+    // que o jogador se acostumou, e só as outras taxas de quadros passam a
+    // bater com esse mesmo efeito.
+    private const float BoostReferenceFps = 60.0f;
+
+    // Teto da escala: depois de uma pausa, tela de loading ou travada, o delta
+    // entre dois ticks chega a segundos inteiros. Sem limite, o primeiro tick
+    // de volta aplicaria esse acúmulo todo de uma vez e mandaria o trânsito
+    // para a estratosfera.
+    private const float BoostMaxFrameScale = 4.0f;
+
+    private int _lastTurboTime;
+    private float _turboFrameScale = 1.0f;
 
 
     private bool _tutorialShown;
@@ -124,14 +151,22 @@ public class NPCTurboBoost : Script
     {
         Vector3 speed = v.Velocity;
         Vector3 forward = v.Direction;
-        float turboPower = ModSettings.ChaosTurboPower;
+        float turboPower = ModSettings.ChaosTurboPower * _turboFrameScale;
 
         Vector3 boostedVel = speed + (forward * turboPower);
 
+        // SÓ Speed, e não Velocity antes dele. Havia aqui uma atribuição de
+        // Velocity com o vetor somado, logo antes desta linha, que era código
+        // morto: Speed reprojeta TODA a magnitude no eixo frontal do carro (é o
+        // mesmo motivo documentado em ApplyMagnetMode e ApplyFreeRideMode), de
+        // modo que o vetor recém-escrito era descartado no ato. O empurrão
+        // frontal e cumulativo — que é a mecânica deste modo, e o que
+        // distingue ele do Solto, onde o vetor inteiro é preservado e o carro
+        // deriva — vem inteiro de Speed.
+        //
         // Usa as propriedades tipadas do wrapper em vez de Function.Call:
         // o native "SET_CAR_VELOCITY" NÃO existe neste ScriptHook (GTA IV
         // 1.2.0.59) e falhava a cada frame, enchendo o log de erros.
-        v.Velocity = boostedVel;
         v.Speed = boostedVel.Length();
     }
 
@@ -199,7 +234,7 @@ public class NPCTurboBoost : Script
         // diferença que dá o comportamento "solto": Speed recoloca o carro no
         // eixo frontal todo frame, matando o componente lateral. Preservando o
         // vetor inteiro, o carro deriva, roda e escorrega de verdade.
-        v.Velocity = v.Velocity + (v.Direction * ModSettings.ChaosFreeRidePush);
+        v.Velocity = v.Velocity + (v.Direction * ModSettings.ChaosFreeRidePush * _turboFrameScale);
     }
 
     // Desliga o "pathing" do motorista sem apagar o motorista.
@@ -542,8 +577,40 @@ public class NPCTurboBoost : Script
         return driver != null && driver.Exists() && driver.isDead;
     }
 
+    // Quanto do empurrão por tick vale neste frame. Só os modos acumulativos
+    // (Legado e Solto) usam isto — Velocidade Máxima e Ímã escrevem valores
+    // absolutos, que já independem da taxa de quadros.
+    private void UpdateTurboFrameScale()
+    {
+        int now = Game.GameTime;
+
+        // Primeiro tick, ou relógio do jogo reiniciado: assume um frame de
+        // referência em vez de um delta gigante ou negativo.
+        if (_lastTurboTime == 0 || now < _lastTurboTime)
+        {
+            _lastTurboTime = now;
+            _turboFrameScale = 1.0f;
+            return;
+        }
+
+        float deltaSeconds = (now - _lastTurboTime) / 1000.0f;
+        _lastTurboTime = now;
+
+        float scale = deltaSeconds * BoostReferenceFps;
+
+        if (scale > BoostMaxFrameScale)
+            scale = BoostMaxFrameScale;
+
+        if (scale < 0.0f)
+            scale = 0.0f;
+
+        _turboFrameScale = scale;
+    }
+
     private void ApplyTurboLogic()
     {
+        UpdateTurboFrameScale();
+
         Vehicle playerVeh = null;
         bool playerInVehicle = Player.Character.isInVehicle();
 
@@ -556,7 +623,7 @@ public class NPCTurboBoost : Script
         bool magnetWanted = ModSettings.ChaosMagnetModeEnabled;
         bool freeRideWanted = ModSettings.ChaosFreeRideModeEnabled;
 
-        var freedThisTick = new HashSet<Ped>();
+        var freedThisTick = new HashSet<Ped>(PedByHandle);
 
         foreach (Vehicle v in World.GetAllVehicles())
         {
@@ -571,7 +638,15 @@ public class NPCTurboBoost : Script
             if (Player.Character.Position.DistanceTo(v.Position) > radius)
                 continue;
 
-            // Só afeta veículos que realmente têm NPC dentro (ignora carros estacionados)
+            // Só afeta veículos que realmente têm NPC dentro (ignora carros
+            // estacionados). isSeatFree ANTES de pedir o ped: mesma proteção de
+            // GetOccupants e IsDebris — GetPedOnSeat não valida o assento e
+            // devolve um handle lixo que passa por Exists() e derruba o jogo no
+            // primeiro native de verdade. Aqui a guarda importa ainda mais, por
+            // ser o caminho que roda para todo veículo do raio, todo frame.
+            if (v.isSeatFree(VehicleSeat.Driver))
+                continue;
+
             Ped driver = v.GetPedOnSeat(VehicleSeat.Driver);
 
             if (driver == null || !driver.Exists())
@@ -652,7 +727,7 @@ public class NPCTurboBoost : Script
             playerVeh = Player.Character.CurrentVehicle;
 
         float radius = ModSettings.ChaosRadius;
-        var touchedThisTick = new HashSet<Vehicle>();
+        var touchedThisTick = new HashSet<Vehicle>(VehicleByHandle);
 
         foreach (Vehicle v in World.GetAllVehicles())
         {
@@ -886,10 +961,15 @@ public class NPCTurboBoost : Script
             + " F1pressionado=" + Game.isKeyPressed(Keys.F1)
             + " hudAberto=" + _hud.IsOpen
             + " desenhoDisparou=" + _perFrameDrawingSeen
-            + " modoLegado=" + ModSettings.ChaosEnabled
-            + " modoVelMax=" + ModSettings.ChaosMaxSpeedModeEnabled
-            + " modoIma=" + ModSettings.ChaosMagnetModeEnabled
-            + " modoSolto=" + ModSettings.ChaosFreeRideModeEnabled
+            // Os valores numéricos vão junto dos liga/desliga: sem eles, o log
+            // não permitia checar se um ajuste de velocidade feito no HUD
+            // chegou de fato à lógica — só se o modo estava ligado.
+            + " modoLegado=" + ModSettings.ChaosEnabled + "/" + ModSettings.ChaosTurboPower
+            + " modoVelMax=" + ModSettings.ChaosMaxSpeedModeEnabled + "/" + ModSettings.ChaosMaxSpeed
+            + " modoIma=" + ModSettings.ChaosMagnetModeEnabled + "/" + ModSettings.ChaosMagnetPull
+            + " modoSolto=" + ModSettings.ChaosFreeRideModeEnabled + "/" + ModSettings.ChaosFreeRidePush
+            + " raio=" + ModSettings.ChaosRadius
+            + " escalaFrame=" + _turboFrameScale.ToString("0.00")
             + " motoristasSemIA=" + _freedDrivers.Count
             + " invencivel=" + ModSettings.ChaosInvincible
             + " amassa=" + ModSettings.ChaosCrumple

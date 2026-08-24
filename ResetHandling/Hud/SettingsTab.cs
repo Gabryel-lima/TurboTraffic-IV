@@ -74,45 +74,58 @@ public class SettingsTab : IHudTab
         }
     }
 
+    // Nas linhas de liga/desliga, ← e → não podem fazer a mesma coisa: alternar
+    // nas duas direções faz segurar ← piscar o valor em vez de desligá-lo. Como
+    // ModSettings só expõe Toggle, o alvo é comparado com o estado atual e o
+    // toggle só é chamado quando há de fato o que mudar — assim → sempre liga,
+    // ← sempre desliga, e repetir a mesma tecla não desfaz o efeito.
+    private static void SetBool(bool current, bool target, System.Action toggle)
+    {
+        if (current != target)
+            toggle();
+    }
+
     public void AdjustValue(int direction)
     {
+        bool target = direction > 0;
+
         switch (_selectedIndex)
         {
             case RowRadius:
                 ModSettings.AdjustChaosRadius(direction * ModSettings.ChaosRadiusStep);
                 break;
             case RowLegacyEnabled:
-                ModSettings.ToggleChaosEnabled();
+                SetBool(ModSettings.ChaosEnabled, target, ModSettings.ToggleChaosEnabled);
                 break;
             case RowLegacyPower:
                 ModSettings.AdjustChaosTurboPower(direction * ModSettings.ChaosTurboPowerStep);
                 break;
             case RowMaxSpeedEnabled:
-                ModSettings.ToggleChaosMaxSpeedModeEnabled();
+                SetBool(ModSettings.ChaosMaxSpeedModeEnabled, target, ModSettings.ToggleChaosMaxSpeedModeEnabled);
                 break;
             case RowMaxSpeedTarget:
                 ModSettings.AdjustChaosMaxSpeed(direction * ModSettings.ChaosMaxSpeedStep);
                 break;
             case RowMagnetEnabled:
-                ModSettings.ToggleChaosMagnetModeEnabled();
+                SetBool(ModSettings.ChaosMagnetModeEnabled, target, ModSettings.ToggleChaosMagnetModeEnabled);
                 break;
             case RowMagnetPull:
                 ModSettings.AdjustChaosMagnetPull(direction * ModSettings.ChaosMagnetPullStep);
                 break;
             case RowFreeRideEnabled:
-                ModSettings.ToggleChaosFreeRideModeEnabled();
+                SetBool(ModSettings.ChaosFreeRideModeEnabled, target, ModSettings.ToggleChaosFreeRideModeEnabled);
                 break;
             case RowFreeRidePush:
                 ModSettings.AdjustChaosFreeRidePush(direction * ModSettings.ChaosFreeRidePushStep);
                 break;
             case RowInvincible:
-                ModSettings.ToggleChaosInvincible();
+                SetBool(ModSettings.ChaosInvincible, target, ModSettings.ToggleChaosInvincible);
                 break;
             case RowCrumple:
-                ModSettings.ToggleChaosCrumple();
+                SetBool(ModSettings.ChaosCrumple, target, ModSettings.ToggleChaosCrumple);
                 break;
             case RowDebrisCleanup:
-                ModSettings.ToggleChaosDebrisCleanup();
+                SetBool(ModSettings.ChaosDebrisCleanup, target, ModSettings.ToggleChaosDebrisCleanup);
                 break;
         }
     }
@@ -168,17 +181,29 @@ public class SettingsTab : IHudTab
         {
             case RowRadius: return ModSettings.ChaosRadius.ToString("0") + " m";
             case RowLegacyEnabled: return ModSettings.ChaosEnabled ? "Ativado" : "Desativado";
-            case RowLegacyPower: return ModSettings.ChaosTurboPower.ToString("0");
+
+            // Força e impulso são somados à velocidade por segundo, não uma
+            // velocidade final: mostrar só o número não dizia de que grandeza
+            // se tratava, e "Velocidade alvo 400" parecia um valor plausível
+            // quando na verdade são 1440 km/h.
+            case RowLegacyPower: return ModSettings.ChaosTurboPower.ToString("0") + " m/s por seg";
             case RowMaxSpeedEnabled: return ModSettings.ChaosMaxSpeedModeEnabled ? "Ativado" : "Desativado";
-            case RowMaxSpeedTarget: return ModSettings.ChaosMaxSpeed.ToString("0");
+            case RowMaxSpeedTarget: return SpeedLabel(ModSettings.ChaosMaxSpeed);
             case RowMagnetEnabled: return ModSettings.ChaosMagnetModeEnabled ? "Ativado" : "Desativado";
-            case RowMagnetPull: return ModSettings.ChaosMagnetPull.ToString("0");
+            case RowMagnetPull: return SpeedLabel(ModSettings.ChaosMagnetPull);
             case RowFreeRideEnabled: return ModSettings.ChaosFreeRideModeEnabled ? "Ativado" : "Desativado";
-            case RowFreeRidePush: return ModSettings.ChaosFreeRidePush.ToString("0");
+            case RowFreeRidePush: return ModSettings.ChaosFreeRidePush.ToString("0") + " m/s por seg";
             case RowInvincible: return ModSettings.ChaosInvincible ? "Ativado" : "Desativado";
             case RowCrumple: return ModSettings.ChaosCrumple ? "Ativado" : "Desativado";
             case RowDebrisCleanup: return ModSettings.ChaosDebrisCleanup ? "Ativado" : "Desativado";
             default: return string.Empty;
         }
+    }
+
+    // Velocidade real do jogo é m/s; km/h vem junto porque é a unidade em que
+    // o jogador pensa ao decidir "rápido demais" ou não.
+    private static string SpeedLabel(float metersPerSecond)
+    {
+        return metersPerSecond.ToString("0") + " m/s  (" + (metersPerSecond * 3.6f).ToString("0") + " km/h)";
     }
 }
