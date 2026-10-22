@@ -70,13 +70,28 @@ ResetHandling/
 
 ## 🔧 Como Compilar
 
-### Requisitos
+### Sem Visual Studio (mais simples)
+
+Na raiz do repositório:
+
+```powershell
+.\Build-TurboTrafficIV.ps1
+.\Install-TurboTrafficIV.ps1
+```
+
+O `Build-TurboTrafficIV.ps1` usa o MSBuild do Visual Studio quando ele está instalado; se não estiver, usa o compilador C# que já vem com o Windows (`.NET Framework 4`, `csc.exe`), lendo os arquivos e referências do `ResetHandling.csproj`. A DLL sai em `scripts\` e o log em `logs\build.log`.
+
+> **Mantenha o código em C# 5.** O `csc.exe` do Windows não entende recursos mais novos (`$"..."`, `?.`, `nameof`, propriedades com `=>`). Usá-los quebra a compilação em máquinas sem Visual Studio.
+
+### Com Visual Studio
+
+#### Requisitos
 
 - **Visual Studio 2017 ou superior** (com suporte a C#)
 - **.NET Framework 4.0 Developer Pack** (Target Pack) instalado — necessário para compilar contra `TargetFrameworkVersion v4.0`
 - Nenhuma configuração manual de caminho é necessária: a referência a `ScriptHookDotNet.dll` já aponta para `..\scripts\ScriptHookDotNet.dll`, que está commitado neste repositório.
 
-### Passos para Compilar
+#### Passos para Compilar
 
 1. **Abrir o Projeto**
    - Abra `ResetHandling.sln` no Visual Studio

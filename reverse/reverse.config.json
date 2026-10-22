@@ -1,0 +1,40 @@
+{
+  "$comment": "Versões fixadas do ambiente de engenharia reversa. Setup-ReverseTools.ps1 instala exatamente isto; mudar uma versão aqui é a forma de atualizar.",
+  "rea": {
+    "package": "rea-agents",
+    "version": "6.7.0",
+    "agentClient": "claude_code"
+  },
+  "node": {
+    "minimum": "24.11.0"
+  },
+  "jdk": {
+    "wingetId": "Microsoft.OpenJDK.21",
+    "minimumMajor": 21,
+    "searchRoots": ["C:\\Program Files\\Microsoft", "C:\\Program Files\\Java", "C:\\Program Files\\Eclipse Adoptium"]
+  },
+  "ghidra": {
+    "version": "12.1.4",
+    "url": "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.4_build/ghidra_12.1.4_PUBLIC_20260921.zip",
+    "sha256": "ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db",
+    "folderName": "ghidra_12.1.4_PUBLIC",
+    "startupTimeoutMs": 7200000,
+    "headlessMaxMem": "3G",
+    "disabledAnalyzers": "WindowsResourceReference"
+  },
+  "toolsDir": "C:\\tools",
+  "analysis": {
+    "keepRuns": 10
+  },
+  "game": {
+    "executable": "GTAIV.exe",
+    "knownBuilds": {
+      "08759a5516f9837920ea504436236bbab89d0826a8e4d04ff106345177b5345d": "1.2.0.59 (Steam, Complete Edition, link 2023-01-27)"
+    }
+  },
+  "engineFlagProbes": [
+    "norestrictions", "nomemrestrict", "availablevidmem", "percentvidmem", "novblank",
+    "noprecache", "notimefix", "framelockinwindow", "framelimit", "disableimposters",
+    "nominimize", "noloadingtune", "windowed", "safemode", "benchmark"
+  ]
+}

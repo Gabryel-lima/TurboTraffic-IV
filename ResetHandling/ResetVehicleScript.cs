@@ -97,6 +97,33 @@ public class NPCTurboBoost : Script
     private const float MagnetTurnRatePerFrame = 0.15f;
 
 
+    // Estado do mundo lido UMA vez por tick e compartilhado pelas passadas
+    // (turbo, dano, limpeza). Cada leitura destas é uma ida ao jogo: só
+    // Player.Character.Position custa 4 natives, e era refeita para cada
+    // veículo de cada passada; World.GetAllVehicles percorre o pool inteiro e
+    // era chamado até 3x por tick. Ver reverse/knowledge, achados F-002/F-003.
+    private Ped _tickPlayer;
+    private Vector3 _tickPlayerPos;
+    private Vehicle _tickPlayerVehicle; // null com o jogador a pé
+    private Vehicle[] _tickVehicles;    // preenchido só se alguma passada precisar
+
+    // Veículos já descongelados por WakeVehicle (achado F-005). FreezePosition
+    // é só de escrita, então antes era reemitido em todo frame para todo carro
+    // do raio; agora só no primeiro contato. Quem sai do raio sai do conjunto e
+    // é acordado de novo se voltar.
+    private HashSet<Vehicle> _wokenVehicles = new HashSet<Vehicle>(VehicleByHandle);
+
+    // A limpeza gravava uma linha a cada varredura com remoção — 6.620 linhas
+    // num único log (achado F-015). Agora soma e resume a cada 30 s, junto com
+    // o maior número de veículos vistos no mundo, que é o que permite comparar
+    // a ocupação real com as 140 vagas do pool de veículos (achados F-021/F-022).
+    private const int DebrisLogIntervalMs = 30000;
+    private int _lastDebrisLogTime;
+    private int _debrisVehiclesSinceLog;
+    private int _debrisPedsSinceLog;
+    private int _debrisSweepsSinceLog;
+    private int _worldVehiclesMaxSinceLog;
+
     private bool _tutorialShown;
     private bool _drawingWarningShown;
     private bool _perFrameDrawingSeen;
@@ -119,10 +146,11 @@ public class NPCTurboBoost : Script
     private void ElevatePeds()
     {
         float radius = 120.0f;
-        Vector3 playerPos = Player.Character.Position;
+        Ped player = Player.Character;
+        Vector3 playerPos = player.Position;
 
         // --- 1) Elevar o próprio player ---
-        Player.Character.Position = new Vector3(
+        player.Position = new Vector3(
             playerPos.X,
             playerPos.Y,
             playerPos.Z + 1.0f
@@ -134,8 +162,9 @@ public class NPCTurboBoost : Script
             if (p == null || !p.Exists())
                 continue;
 
-            // Ignorar player
-            if (p == Player.Character)
+            // Ignorar player (lido uma vez antes do laço: Player.Character
+            // custa 2 natives e era relido para cada ped).
+            if (p == player)
                 continue;
 
             // Ignorar NPC morto
@@ -179,11 +208,37 @@ public class NPCTurboBoost : Script
         Player.Character.Die();
     }
 
+    // Movimento de um veículo, lido do jogo uma vez por tick e repassado aos
+    // modos (achado F-004). Ler Velocity custa 3 Exists + 2 natives, e cada
+    // modo relia Direction e Velocity no mesmo carro. Cada escrita feita por um
+    // modo também atualiza esta cópia, então o modo seguinte enxerga o mesmo
+    // valor que antes ele leria do jogo.
+    private struct Motion
+    {
+        public Vector3 Position;
+        public Vector3 Forward;
+        public Vector3 Velocity;
+    }
+
+    // v.Speed = s é SET_CAR_FORWARD_SPEED: a velocidade inteira vai para o eixo
+    // do nariz. Grava no jogo e espelha na cópia.
+    private static void WriteForwardSpeed(Vehicle v, ref Motion m, float speed)
+    {
+        v.Speed = speed;
+        m.Velocity = m.Forward * speed;
+    }
+
+    private static void WriteVelocity(Vehicle v, ref Motion m, Vector3 velocity)
+    {
+        v.Velocity = velocity;
+        m.Velocity = velocity;
+    }
+
     // Modo Legado: empurrão ADITIVO e cumulativo, sem teto — o formato
     // original do mod. Não sabe nada sobre o Modo Velocidade Máxima.
-    private void ApplyLegacyBoost(Vehicle v)
+    private void ApplyLegacyBoost(Vehicle v, ref Motion m)
     {
-        Vector3 forward = v.Direction;
+        Vector3 forward = m.Forward;
         float turboPower = ModSettings.ChaosTurboPower * _turboFrameScale;
 
         // Velocidade ATUAL projetada no eixo do nariz (produto escalar), e não
@@ -197,12 +252,13 @@ public class NPCTurboBoost : Script
         // diferentes de um carro para o outro. Com Dot, o que se soma é a
         // velocidade que o carro de fato tem PARA ONDE ELE APONTA — o resto do
         // movimento fica onde estava.
-        float forwardSpeed = Vector3.Dot(v.Velocity, forward);
+        float forwardSpeed = Vector3.Dot(m.Velocity, forward);
 
         // Usa as propriedades tipadas do wrapper em vez de Function.Call:
         // o native "SET_CAR_VELOCITY" NÃO existe neste ScriptHook (GTA IV
-        // 1.2.0.59) e falhava a cada frame, enchendo o log de erros.
-        v.Speed = forwardSpeed + turboPower;
+        // 1.2.0.59) e falhava a cada frame, enchendo o log de erros. Function.Call
+        // também procura o native pelo nome a cada chamada (achado F-007).
+        WriteForwardSpeed(v, ref m, forwardSpeed + turboPower);
 
         ApplyPhysicalPush(v, forward, turboPower);
     }
@@ -213,11 +269,11 @@ public class NPCTurboBoost : Script
     // modos estão ligados, este roda depois do Legado em ApplyTurboLogic, e
     // como aqui a velocidade é sobrescrita (não somada), o alvo prevalece
     // para aquele tick — essa ordem fixa é a composição entre os modos.
-    private void ApplyMaxSpeedMode(Vehicle v)
+    private void ApplyMaxSpeedMode(Vehicle v, ref Motion m)
     {
-        Vector3 forward = v.Direction;
+        Vector3 forward = m.Forward;
         float targetSpeed = ModSettings.ChaosMaxSpeed;
-        float currentSpeed = Vector3.Dot(v.Velocity, forward);
+        float currentSpeed = Vector3.Dot(m.Velocity, forward);
 
         // ACELERA até o alvo, em vez de grudar nele.
         //
@@ -239,7 +295,7 @@ public class NPCTurboBoost : Script
         else if (delta < -step)
             delta = -step;
 
-        v.Speed = currentSpeed + delta;
+        WriteForwardSpeed(v, ref m, currentSpeed + delta);
 
         // Só empurra fisicamente quando está ACELERANDO: aplicar força para a
         // frente enquanto o carro desacelera brigaria com a própria rampa.
@@ -252,9 +308,9 @@ public class NPCTurboBoost : Script
     // a DIREÇÃO. Por isso roda por último em ApplyTurboLogic: Legado e
     // Velocidade Máxima definem o "quão rápido", o Ímã define o "para onde",
     // e os três compõem sem que nenhum precise conhecer o outro.
-    private void ApplyMagnetMode(Vehicle v)
+    private void ApplyMagnetMode(Vehicle v, ref Motion m)
     {
-        Vector3 toPlayer = Player.Character.Position - v.Position;
+        Vector3 toPlayer = _tickPlayerPos - m.Position;
 
         // Zera o componente vertical: perseguir a altura do jogador faz o
         // carro arar o asfalto ou mergulhar de viadutos em vez de dirigir.
@@ -268,8 +324,10 @@ public class NPCTurboBoost : Script
         Vector3 direction = Vector3.Normalize(toPlayer);
 
         // Herda a velocidade que o veículo já tem (possivelmente vinda de outro
-        // modo), com um piso para que carro parado também seja puxado.
-        float speed = v.Speed;
+        // modo), com um piso para que carro parado também seja puxado. É o
+        // módulo do vetor velocidade, o mesmo que v.Speed (GET_CAR_SPEED)
+        // devolveria, sem mais uma ida ao jogo.
+        float speed = m.Velocity.Length();
         float pull = ModSettings.ChaosMagnetPull;
 
         if (speed < pull)
@@ -293,7 +351,7 @@ public class NPCTurboBoost : Script
         // Só Velocity, sem tocar em Speed: Speed empurra ao longo do eixo
         // FRONTAL do carro, o que jogaria o veículo para onde ele está virado
         // e desfaria justamente a direção que este modo acabou de calcular.
-        v.Velocity = Vector3.Lerp(v.Velocity, desired, turn);
+        WriteVelocity(v, ref m, Vector3.Lerp(m.Velocity, desired, turn));
     }
 
     // Modo Solto: empurra o carro DEPOIS de tirar o motorista do trajeto, para
@@ -301,21 +359,21 @@ public class NPCTurboBoost : Script
     // outras — os outros modos brigam com a IA a cada frame (ela corrige a
     // direção, freia nas curvas, respeita a pista); aqui a IA sai de cena e o
     // impulso é a única coisa que age sobre o carro.
-    private void ApplyFreeRideMode(Vehicle v, Ped driver)
+    private void ApplyFreeRideMode(Vehicle v, Ped driver, ref Motion m)
     {
         // Sem motorista não há IA a soltar — o carro já está entregue à física,
         // que é justamente o estado que este modo procura.
         if (driver != null)
             ReleaseDriverAi(driver);
 
-        Vector3 forward = v.Direction;
+        Vector3 forward = m.Forward;
         float push = ModSettings.ChaosFreeRidePush * _turboFrameScale;
 
         // Impulso puramente ADITIVO no vetor, sem passar por Speed. Essa é a
         // diferença que dá o comportamento "solto": Speed recoloca o carro no
         // eixo frontal todo frame, matando o componente lateral. Preservando o
         // vetor inteiro, o carro deriva, roda e escorrega de verdade.
-        v.Velocity = v.Velocity + (forward * push);
+        WriteVelocity(v, ref m, m.Velocity + (forward * push));
 
         ApplyPhysicalPush(v, forward, push);
     }
@@ -475,37 +533,21 @@ public class NPCTurboBoost : Script
 
         _lastDebrisSweepTime = now;
 
-        Vehicle playerVeh = null;
-        bool playerInVehicle = Player.Character.isInVehicle();
-
-        if (playerInVehicle)
-            playerVeh = Player.Character.CurrentVehicle;
-
-        Vector3 playerPos = Player.Character.Position;
+        Vehicle[] vehicles = TickVehicles;
         int deleted = 0;
 
-        foreach (Vehicle v in World.GetAllVehicles())
+        foreach (Vehicle v in vehicles)
         {
             if (deleted >= DebrisMaxDeletionsPerSweep)
                 break;
 
-            if (v == null || !v.Exists())
+            // Sem v.Exists(): a enumeração deste tick já filtrou por
+            // DoesVehicleExist, e cada propriedade lida abaixo confere de novo
+            // por conta própria (achado F-001).
+            if (v == null)
                 continue;
 
-            if (playerInVehicle && v == playerVeh)
-                continue;
-
-            if (v.isRequiredForMission)
-                continue;
-
-            // A regra central: nada desaparece em cena.
-            if (v.isOnScreen)
-                continue;
-
-            // Margem extra além da tela: um carro logo atrás do jogador pode
-            // voltar ao campo de visão num giro de câmera, e sumir bem na hora
-            // em que ele se vira é pior que a carcaça parada.
-            if (playerPos.DistanceTo(v.Position) < DebrisMinDistance)
+            if (_tickPlayerVehicle != null && v == _tickPlayerVehicle)
                 continue;
 
             // Isolamento por veículo: um handle problemático faz esta sucata ser
@@ -513,6 +555,19 @@ public class NPCTurboBoost : Script
             // junto o turbo e o HUD daquele frame.
             try
             {
+                if (v.isRequiredForMission)
+                    continue;
+
+                // A regra central: nada desaparece em cena.
+                if (v.isOnScreen)
+                    continue;
+
+                // Margem extra além da tela: um carro logo atrás do jogador pode
+                // voltar ao campo de visão num giro de câmera, e sumir bem na hora
+                // em que ele se vira é pior que a carcaça parada.
+                if (_tickPlayerPos.DistanceTo(v.Position) < DebrisMinDistance)
+                    continue;
+
                 if (!IsDebris(v))
                     continue;
 
@@ -531,10 +586,39 @@ public class NPCTurboBoost : Script
             }
         }
 
-        int pedsRemoved = CleanupLooseChaosPeds(playerPos);
+        int pedsRemoved = CleanupLooseChaosPeds(_tickPlayerPos);
 
-        if (deleted > 0 || pedsRemoved > 0)
-            ModLog.Write("Limpeza fora do campo de visao: veiculos=" + deleted + " peds=" + pedsRemoved);
+        LogDebrisSummary(now, vehicles.Length, deleted, pedsRemoved);
+    }
+
+    // Uma linha a cada DebrisLogIntervalMs, só se algo foi removido nesse
+    // intervalo. "mundo" é o maior número de veículos existentes visto nas
+    // varreduras do intervalo: compara a ocupação real com as 140 vagas do pool.
+    private void LogDebrisSummary(int now, int worldVehicles, int deleted, int pedsRemoved)
+    {
+        _debrisSweepsSinceLog++;
+        _debrisVehiclesSinceLog += deleted;
+        _debrisPedsSinceLog += pedsRemoved;
+        if (worldVehicles > _worldVehiclesMaxSinceLog)
+            _worldVehiclesMaxSinceLog = worldVehicles;
+
+        if (now - _lastDebrisLogTime < DebrisLogIntervalMs)
+            return;
+
+        if (_debrisVehiclesSinceLog > 0 || _debrisPedsSinceLog > 0)
+        {
+            ModLog.Write("Limpeza fora do campo de visao: veiculos=" + _debrisVehiclesSinceLog
+                + " peds=" + _debrisPedsSinceLog
+                + " varreduras=" + _debrisSweepsSinceLog
+                + " mundo=" + _worldVehiclesMaxSinceLog
+                + " intervaloSeg=" + ((now - _lastDebrisLogTime) / 1000));
+        }
+
+        _lastDebrisLogTime = now;
+        _debrisSweepsSinceLog = 0;
+        _debrisVehiclesSinceLog = 0;
+        _debrisPedsSinceLog = 0;
+        _worldVehiclesMaxSinceLog = 0;
     }
 
     // ESTA era a fábrica de pedestres. DELETE_CAR remove o veículo mas NÃO
@@ -548,7 +632,7 @@ public class NPCTurboBoost : Script
     {
         foreach (Ped p in occupants)
         {
-            if (p == Player.Character)
+            if (p == _tickPlayer)
                 continue;
 
             _freedDrivers.Remove(p);
@@ -657,7 +741,7 @@ public class NPCTurboBoost : Script
                 if (p.isInVehicle())
                     continue;
 
-                if (p == Player.Character || p.isRequiredForMission)
+                if (p == _tickPlayer || p.isRequiredForMission)
                     continue;
 
                 // Mesmas regras dos veículos: nada some em cena nem perto demais.
@@ -785,15 +869,17 @@ public class NPCTurboBoost : Script
     // encaixa na rua, e um carro estacionado por script fica congelado até
     // alguém encostar nele.
     //
-    private void WakeVehicle(Vehicle v)
+    private void WakeVehicle(Vehicle v, bool firstContact)
     {
         try
         {
             // FreezePosition é só de ESCRITA nesta biblioteca — não há como
-            // perguntar se o carro está congelado, então a única opção é
-            // descongelar sempre. Uma native por carro por frame, que é a
-            // mesma ordem de grandeza do resto da varredura.
-            v.FreezePosition = false;
+            // perguntar se o carro está congelado. Descongela no primeiro
+            // contato (o carro entrou no raio): é aí que trânsito recém-nascido
+            // e carro estacionado por script chegam congelados. Reemitir em
+            // todo frame custava um native por carro por frame (achado F-005).
+            if (firstContact)
+                v.FreezePosition = false;
 
             // Motor desligado não impede a escrita de velocidade, mas impede o
             // carro de SEGURAR essa velocidade: sem motor ele desacelera de
@@ -842,12 +928,6 @@ public class NPCTurboBoost : Script
     {
         UpdateTurboFrameScale();
 
-        Vehicle playerVeh = null;
-        bool playerInVehicle = Player.Character.isInVehicle();
-
-        if (playerInVehicle)
-            playerVeh = Player.Character.CurrentVehicle;
-
         float radius = ModSettings.ChaosRadius;
         bool legacyWanted = ModSettings.ChaosEnabled;
         bool maxSpeedWanted = ModSettings.ChaosMaxSpeedModeEnabled;
@@ -856,7 +936,12 @@ public class NPCTurboBoost : Script
 
         bool driverlessWanted = ModSettings.ChaosAffectDriverlessVehicles;
 
+        // Só os modos que mexem na velocidade usam o eixo do nariz; o Ímã
+        // sozinho não precisa dele (e ler Direction custa um native).
+        bool forwardWanted = legacyWanted || maxSpeedWanted || freeRideWanted;
+
         var freedThisTick = new HashSet<Ped>(PedByHandle);
+        var wokenThisTick = new HashSet<Vehicle>(VehicleByHandle);
 
         // Contadores da varredura — sem eles, "vários veículos não pegam o
         // efeito" é impossível de investigar: não dá para saber se o carro foi
@@ -865,22 +950,18 @@ public class NPCTurboBoost : Script
         int seen = 0, inRange = 0, affected = 0;
         int skipNoDriver = 0, skipUpsideDown = 0, skipMission = 0, skipError = 0;
 
-        foreach (Vehicle v in World.GetAllVehicles())
+        foreach (Vehicle v in TickVehicles)
         {
-            if (v == null || !v.Exists())
+            // Sem v.Exists(): a enumeração deste tick já filtrou por
+            // DoesVehicleExist (achado F-001).
+            if (v == null)
                 continue;
 
             seen++;
 
             // Nunca alterar carro do player
-            if (playerInVehicle && v == playerVeh)
+            if (_tickPlayerVehicle != null && v == _tickPlayerVehicle)
                 continue;
-
-            // Limite de distância (raio global, compartilhado por todos os modos)
-            if (Player.Character.Position.DistanceTo(v.Position) > radius)
-                continue;
-
-            inRange++;
 
             // Isolamento por veículo: um handle problemático faz ESTE carro ser
             // pulado, não o tick inteiro morrer — o mesmo padrão já usado na
@@ -889,6 +970,15 @@ public class NPCTurboBoost : Script
             // sintoma "vários veículos não tomam efeito".
             try
             {
+                Motion motion = new Motion();
+                motion.Position = v.Position;
+
+                // Limite de distância (raio global, compartilhado por todos os modos)
+                if (_tickPlayerPos.DistanceTo(motion.Position) > radius)
+                    continue;
+
+                inRange++;
+
                 // O motorista é pedido DIRETO, sem passar por isSeatFree.
                 //
                 // A guarda de assento existe para os bancos de PASSAGEIRO, que
@@ -899,7 +989,7 @@ public class NPCTurboBoost : Script
                 // silêncio. Quem valida o resultado é o Exists() abaixo.
                 Ped driver = TryGetDriver(v);
 
-                if (driver != null && driver == Player.Character)
+                if (driver != null && driver == _tickPlayer)
                     continue;
 
                 // Sem motorista: carro estacionado, ou o motorista ainda não
@@ -946,7 +1036,13 @@ public class NPCTurboBoost : Script
                 // impulso — ver WakeVehicle. É isto que faz carro recém-nascido
                 // no trânsito entrar no efeito junto com os outros, em vez de
                 // ficar imune até o jogo resolver simulá-lo por conta própria.
-                WakeVehicle(v);
+                WakeVehicle(v, !_wokenVehicles.Contains(v));
+                wokenThisTick.Add(v);
+
+                // Uma leitura de cada por veículo; os modos trabalham na cópia.
+                if (forwardWanted)
+                    motion.Forward = v.Direction;
+                motion.Velocity = v.Velocity;
 
                 // Cada modo é aplicado por um método próprio que desconhece os
                 // outros — evita que a mecânica de um vaze para o outro. A ordem
@@ -955,21 +1051,21 @@ public class NPCTurboBoost : Script
                 // Combinar Ímã com Solto dá carros sem IA sendo arrastados até o
                 // jogador; Solto sozinho é o carro entregue à física pura.
                 if (legacyWanted)
-                    ApplyLegacyBoost(v);
+                    ApplyLegacyBoost(v, ref motion);
 
                 if (maxSpeedWanted)
-                    ApplyMaxSpeedMode(v);
+                    ApplyMaxSpeedMode(v, ref motion);
 
                 if (freeRideWanted)
                 {
-                    ApplyFreeRideMode(v, driver);
+                    ApplyFreeRideMode(v, driver, ref motion);
 
                     if (driver != null)
                         freedThisTick.Add(driver);
                 }
 
                 if (magnetWanted)
-                    ApplyMagnetMode(v);
+                    ApplyMagnetMode(v, ref motion);
 
                 affected++;
             }
@@ -979,6 +1075,10 @@ public class NPCTurboBoost : Script
                 ModLog.WriteException("ApplyTurboLogic.veiculo", ex);
             }
         }
+
+        // Quem não foi tocado neste tick (saiu do raio, sumiu) sai do conjunto
+        // e será descongelado de novo se voltar.
+        _wokenVehicles = wokenThisTick;
 
         LogTurboSweep(seen, inRange, affected, skipNoDriver, skipUpsideDown, skipMission, skipError);
 
@@ -1012,41 +1112,46 @@ public class NPCTurboBoost : Script
 
         bool settingsChanged = invincibleWanted != _appliedInvincible || crumpleWanted != _appliedCrumple;
 
-        Vehicle playerVeh = null;
-        bool playerInVehicle = Player.Character.isInVehicle();
-
-        if (playerInVehicle)
-            playerVeh = Player.Character.CurrentVehicle;
-
         float radius = ModSettings.ChaosRadius;
         var touchedThisTick = new HashSet<Vehicle>(VehicleByHandle);
 
-        foreach (Vehicle v in World.GetAllVehicles())
+        foreach (Vehicle v in TickVehicles)
         {
-            if (v == null || !v.Exists())
+            // Sem v.Exists(): a enumeração deste tick já filtrou (achado F-001).
+            if (v == null)
                 continue;
 
-            if (playerInVehicle && v == playerVeh)
+            if (_tickPlayerVehicle != null && v == _tickPlayerVehicle)
                 continue;
 
-            if (Player.Character.Position.DistanceTo(v.Position) > radius)
-                continue;
-
-            if (v.isRequiredForMission)
-                continue;
-
-            // Reemitir os mesmos natives a cada frame para o mesmo veículo é
-            // desperdício puro (são 4 chamadas por carro, por frame). Só
-            // reaplica quem ainda não foi tocado ou quando a configuração
-            // mudou desde a última aplicação.
-            if (!settingsChanged && _tweakedVehicles.Contains(v))
+            // Isolamento por veículo, como no turbo e na limpeza: antes o
+            // Exists() explícito era a única proteção desta passada, e um handle
+            // ruim derrubava o tick inteiro.
+            try
             {
-                touchedThisTick.Add(v);
-                continue;
-            }
+                if (_tickPlayerPos.DistanceTo(v.Position) > radius)
+                    continue;
 
-            ApplyDamageState(v, invincibleWanted, crumpleWanted);
-            touchedThisTick.Add(v);
+                if (v.isRequiredForMission)
+                    continue;
+
+                // Reemitir os mesmos natives a cada frame para o mesmo veículo é
+                // desperdício puro (são 4 chamadas por carro, por frame). Só
+                // reaplica quem ainda não foi tocado ou quando a configuração
+                // mudou desde a última aplicação.
+                if (!settingsChanged && _tweakedVehicles.Contains(v))
+                {
+                    touchedThisTick.Add(v);
+                    continue;
+                }
+
+                ApplyDamageState(v, invincibleWanted, crumpleWanted);
+                touchedThisTick.Add(v);
+            }
+            catch (Exception ex)
+            {
+                ModLog.WriteException("ApplyDamageFlags.veiculo", ex);
+            }
         }
 
         _appliedInvincible = invincibleWanted;
@@ -1072,10 +1177,8 @@ public class NPCTurboBoost : Script
 
         try
         {
-            Ped player = Player.Character;
-
-            if (player == null || !player.Exists())
-                return;
+            // Já validado por BeginTick neste tick.
+            Ped player = _tickPlayer;
 
             // Invincible sozinho corta o dano de vida, mas fogo e explosão
             // continuam derrubando o personagem — mesma lição já aprendida com
@@ -1316,6 +1419,35 @@ public class NPCTurboBoost : Script
             + " veicAlterados=" + _tweakedVehicles.Count);
     }
 
+    // Lê do jogo, uma vez, o que todas as passadas do tick precisam. Devolve
+    // false quando não há personagem válido.
+    private bool BeginTick()
+    {
+        _tickVehicles = null;
+
+        _tickPlayer = Player.Character;
+        if (_tickPlayer == null || !_tickPlayer.Exists())
+            return false;
+
+        _tickPlayerPos = _tickPlayer.Position;
+        _tickPlayerVehicle = _tickPlayer.isInVehicle() ? _tickPlayer.CurrentVehicle : null;
+        return true;
+    }
+
+    // Lista de veículos do mundo deste tick, buscada só na primeira passada que
+    // precisar dela. Com tudo no padrão (turbo e invencibilidade desligados), só
+    // a limpeza a usa, a cada 750 ms — e nos outros ticks o pool nem é lido.
+    private Vehicle[] TickVehicles
+    {
+        get
+        {
+            if (_tickVehicles == null)
+                _tickVehicles = World.GetAllVehicles();
+
+            return _tickVehicles;
+        }
+    }
+
     private void OnTick(object sender, EventArgs e)
     {
         try
@@ -1331,11 +1463,23 @@ public class NPCTurboBoost : Script
             if (_hud.IsOpen)
                 Player.CanControlCharacter = false;
 
+            // Depois do input e do HUD (que podem pôr o jogador num carro
+            // novo) e antes das passadas que mexem no mundo. Sem personagem
+            // válido (carregamento, morte, troca de episódio), não há o que
+            // fazer no mundo neste tick.
+            if (!BeginTick())
+                return;
+
             if (ModSettings.ChaosEnabled || ModSettings.ChaosMaxSpeedModeEnabled
                 || ModSettings.ChaosMagnetModeEnabled || ModSettings.ChaosFreeRideModeEnabled)
+            {
                 ApplyTurboLogic();
+            }
             else
+            {
                 RestoreAllFreedDrivers();
+                _wokenVehicles.Clear();
+            }
 
             // Fora do if de propósito: invencibilidade e deformação valem por
             // si só, sem exigir nenhum modo de movimento ligado.

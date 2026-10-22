@@ -1,0 +1,40 @@
+MIT License
+
+Copyright (c) 2025-2026 Gabryel Lima da Silva
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+
+Third-party components / Componentes de terceiros
+
+This license covers only the original code and documentation of TurboTraffic-IV
+(ResetHandling/, MyLoader/, reverse/, the PowerShell scripts and the docs).
+The redistributed third-party binaries below are NOT covered by this license
+and remain under the terms set by their respective authors:
+
+  - dinput8.dll ................ Ultimate ASI Loader, by ThirteenAG
+  - ScriptHook.dll ............. GTA IV Script Hook, by Aru
+  - ScriptHookDotNet.asi/.dll .. GTA IV ScriptHookDotNet
+  - aCompleteEditionHook.asi ... third-party compatibility hook
+
+Esta licença cobre apenas o código e a documentação originais do TurboTraffic-IV.
+Os binários de terceiros listados acima continuam sob os termos de seus autores.
+Grand Theft Auto IV é marca e propriedade da Rockstar Games / Take-Two
+Interactive; este projeto não é afiliado a elas.

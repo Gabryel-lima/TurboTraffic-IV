@@ -143,5 +143,13 @@ ResetHandling/obj/
 !*.txt
 !Properties/AssemblyInfo.cs
 
-# Logs gerados pelo Install-TurboTrafficIV.ps1
-install-log-*.txt
+# Log do Install-TurboTrafficIV.ps1 (reescrito a cada execução)
+logs/
+
+# ============================================
+# Engenharia reversa (reverse/)
+# ============================================
+# Saídas de execução e caches locais: grandes, por máquina, e podem conter
+# trechos de binários do jogo. O conhecimento versionado fica em reverse/knowledge/.
+reverse/runs/
+reverse/.local/

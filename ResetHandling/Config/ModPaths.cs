@@ -29,6 +29,13 @@ public static class ModPaths
         get { return Path.Combine(DataFolder, "TurboTrafficIV.log"); }
     }
 
+    // Log da sessão anterior, preservado para diagnosticar um jogo que fechou
+    // ou travou — ver ModLog.StartSession.
+    public static string PreviousLogFile
+    {
+        get { return Path.Combine(DataFolder, "TurboTrafficIV.anterior.log"); }
+    }
+
     public static string SettingsFilePath
     {
         get { return Path.Combine(DataFolder, "ResetHandling.ini"); }

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Instalador automatizado do mod TurboTraffic-IV para GTA IV.
 
@@ -57,7 +57,10 @@ param(
 $ScriptRoot   = $PSScriptRoot
 $MainFolder   = Join-Path $ScriptRoot 'Main_GTAIV_Folder'
 $ScriptsFolder = Join-Path $ScriptRoot 'scripts'
-$LogFile      = Join-Path $ScriptRoot ("install-log-{0}.txt" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+# Um único log, reescrito a cada execução: antes cada instalação criava um
+# install-log-<data>.txt novo na raiz do repositório e eles se acumulavam.
+$LogDir       = Join-Path $ScriptRoot 'logs'
+$LogFile      = Join-Path $LogDir 'install.log'
 
 # Arquivos que outros mods de ScriptHookDotNet podem compartilhar
 $SharedFiles = @(
@@ -82,7 +85,9 @@ function Write-Log {
     param([string]$Message, [string]$Level = 'INFO')
     $timestamp = Get-Date -Format 'HH:mm:ss'
     $line = "[$timestamp][$Level] $Message"
-    Add-Content -Path $LogFile -Value $line -ErrorAction SilentlyContinue
+    # -WhatIf:$false: o log precisa existir justamente quando a execução é só
+    # uma simulação.
+    Add-Content -Path $LogFile -Value $line -Encoding UTF8 -WhatIf:$false -ErrorAction SilentlyContinue
 
     switch ($Level) {
         'OK'    { Write-Host $line -ForegroundColor Green }
@@ -630,6 +635,11 @@ function Uninstall-Mod {
 Write-Host ''
 Write-Host '=== TurboTraffic-IV - Instalador ===' -ForegroundColor Magenta
 Write-Host ''
+
+# Recomeça o log do zero: ele descreve só a execução atual.
+New-Item -ItemType Directory -Force -Path $LogDir -WhatIf:$false | Out-Null
+Set-Content -Path $LogFile -Encoding UTF8 -WhatIf:$false -Value (
+    "TurboTraffic-IV - {0} - {1}" -f $(if ($Uninstall) { "desinstalação ($UninstallMode)" } else { 'instalação' }), (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
 
 if (-not (Test-Path $MainFolder) -or -not (Test-Path $ScriptsFolder)) {
     Write-Log "Pastas 'Main_GTAIV_Folder' e/ou 'scripts' não encontradas ao lado deste script. Execute-o a partir da raiz do repositório TurboTraffic-IV." 'ERROR'

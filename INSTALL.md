@@ -3,6 +3,8 @@
 Este guia irá te ajudar a instalar o mod TurboTraffic-IV no Grand Theft Auto IV passo a passo.
 
 > **Prefira o instalador automático.** O script `Install-TurboTrafficIV.ps1` (na raiz do repositório) faz tudo isso por você, detecta o jogo automaticamente e — diferente da cópia manual abaixo — sabe atualizar uma instalação existente sozinho: sobrescreve os arquivos e remove qualquer arquivo de versão antiga do mod que não exista mais, sem você precisar apagar nada manualmente. Veja o [README.md](README.md#-instalação). O passo a passo manual abaixo é útil se você não puder rodar PowerShell ou quiser entender exatamente o que cada arquivo faz.
+>
+> O instalador registra cada passo em `logs\install.log`, na raiz do repositório. O arquivo é reescrito a cada execução, então mostra sempre só a última instalação, atualização ou desinstalação.
 
 ## 📍 Passo 1: Localizar o Diretório do GTA IV
 
@@ -160,7 +162,10 @@ Após copiar todos os arquivos, verifique se a instalação está correta:
 1. **Backup**: Se você fez backup, restaure os arquivos originais
 2. **Verifique dinput8.dll**: Este arquivo é essencial. Certifique-se de que está presente
 3. **Verifique ScriptHook**: Certifique-se de que `ScriptHook.dll` e `ScriptHookDotNet.asi` estão presentes
-4. **Logs**: Verifique se há arquivos de log no diretório do jogo que possam indicar o problema
+4. **Logs**: cada log responde uma pergunta diferente:
+   - `logs\install.log` (no repositório): o que o instalador copiou ou removeu na última execução
+   - `scripthook.log` e `ScriptHookDotNet.log` (na pasta do jogo): se a ScriptHook carregou, qual versão do jogo detectou e quais scripts encontrou
+   - `Documentos\TurboTraffic-IV\TurboTrafficIV.log`: o que o mod fez durante o jogo (teclas, HUD, varreduras do turbo)
 
 ### Mensagem de erro ao carregar
 
@@ -198,6 +203,18 @@ Para remover o mod:
 - `ResetHandling.net.pdb`
 - `Documentos\TurboTraffic-IV\` (pasta com o arquivo de configuração do HUD e o log de diagnóstico, criada pelo mod na primeira execução — fica fora da pasta do jogo)
 - `TurboTrafficIV_manifest.json` (se existir)
+
+## 🔬 Ferramentas opcionais de engenharia reversa
+
+Se você quiser estudar o jogo ou o mod mais a fundo (custo de cada chamada do mod, estrutura do `GTAIV.exe`, consultas no Ghidra), há um fluxo pronto em [`reverse/`](reverse/README.md). Ele é **totalmente opcional**: não muda nada na pasta do jogo nem na instalação do mod.
+
+```powershell
+.\reverse\Setup-ReverseTools.ps1 -Check   # mostra o que falta, sem alterar nada
+.\reverse\Setup-ReverseTools.ps1          # instala REA, JDK 21 e Ghidra (pede confirmação)
+.\reverse\Invoke-ReverseAnalysis.ps1 -Open
+```
+
+Requer Windows x64 e Node.js 24.11 ou mais novo. Instruções completas em [reverse/README.md](reverse/README.md).
 
 ## 📞 Suporte
 

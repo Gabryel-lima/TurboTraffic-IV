@@ -1,0 +1,19 @@
+{
+  "$comment": "Perguntas feitas ao GTAIV.exe pela etapa Ghidra (Invoke-ReverseAnalysis.ps1 -Ghidra). Tipos: strings (lista), string-usage (string -> xrefs -> função -> pseudocódigo; sem xref, procura ponteiros para a string na memória; 'decompile' = quantas funções descompilar), function (pseudocódigo de um nome/endereço), call-sites (chamadores de 'procedure' e as linhas do pseudocódigo que contêm 'match'). Ver reverse/lib/ghidra-queries.mjs.",
+  "queries": [
+    { "id": "G-entry", "question": "O que o stub do entry point (.rkstr) faz?", "type": "function", "procedure": "entry" },
+    { "id": "G-entry-stub-1", "question": "Primeira rotina chamada pelo entry (.rkstr)", "type": "function", "procedure": "0x01eeb225" },
+    { "id": "G-entry-stub-2", "question": "Rotina chamada duas vezes pelo entry, com 0 e 2", "type": "function", "procedure": "0x01eeb232" },
+    { "id": "G-entry-stub-3", "question": "Última rotina chamada pelo entry", "type": "function", "procedure": "0x01eeb251" },
+    { "id": "G-flag-notimefix", "question": "Onde a flag notimefix é lida e o que ela muda?", "type": "string-usage", "pattern": "notimefix", "decompile": 1 },
+    { "id": "G-flag-nomemrestrict", "question": "Onde a flag nomemrestrict é lida?", "type": "string-usage", "pattern": "nomemrestrict", "decompile": 1 },
+    { "id": "G-flag-availablevidmem", "question": "Como availablevidmem é interpretada?", "type": "string-usage", "pattern": "availablevidmem", "decompile": 1 },
+    { "id": "G-flag-framelockinwindow", "question": "O que framelockinwindow controla (limitador de frames)?", "type": "string-usage", "pattern": "framelockinwindow", "decompile": 1 },
+    { "id": "G-commandline", "question": "Onde o jogo lê o commandline.txt?", "type": "string-usage", "pattern": "commandline.txt", "decompile": 1 },
+    { "id": "G-pools", "question": "Quais strings citam pools de entidades (limite de veículos/peds)?", "type": "strings", "pattern": "(pool|vehiclestruct|pedstruct)", "mode": "regex", "case_sensitive": false, "limit": 60 },
+    { "id": "G-pool-vehicles", "question": "Onde o pool de veículos (VehicleStruct) é criado e com que tamanho?", "type": "string-usage", "pattern": "VehicleStruct", "decompile": 2 },
+    { "id": "G-pool-all", "question": "Quais pools o jogo cria e com que capacidade? (chamadas ao construtor visto em G-pool-vehicles)", "type": "call-sites", "procedure": "0x00c6c5f0", "match": "FUN_00c6c5f0(", "limit": 60 },
+    { "id": "G-pool-ctor", "question": "O que o construtor de pool faz com os argumentos (contagem, nome, tamanho)?", "type": "function", "procedure": "0x00c6c5f0" },
+    { "id": "G-pool-peds-full", "question": "Onde o jogo detecta o pool de peds cheio?", "type": "string-usage", "pattern": "Cannot convert %s into a ped : ped pool full", "decompile": 1 }
+  ]
+}

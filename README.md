@@ -54,14 +54,19 @@ TurboTraffic-IV/
 │   ├── MyLoader.cpp
 │   ├── MyLoader.h
 │   └── ...
-└── ResetHandling/         # Código fonte C# do mod principal
-    ├── ResetVehicleScript.cs  # Orquestrador: liga teclas, tick e desenho do HUD
-    ├── Config/                # Caminhos, log e persistência das configurações
-    ├── Core/                  # Ações do jogador e identidade de handles em coleções
-    ├── Keybinds/              # Registro único das teclas do mod (usado pela aba Comandos)
-    ├── Vehicles/              # Catálogo de veículos disponíveis para spawn
-    ├── Hud/                   # HUD (painel + abas Comandos/Spawn/Configurações)
-    └── ...
+├── ResetHandling/         # Código fonte C# do mod principal
+│   ├── ResetVehicleScript.cs  # Orquestrador: liga teclas, tick e desenho do HUD
+│   ├── Config/                # Caminhos, log e persistência das configurações
+│   ├── Core/                  # Ações do jogador e identidade de handles em coleções
+│   ├── Keybinds/              # Registro único das teclas do mod (usado pela aba Comandos)
+│   ├── Vehicles/              # Catálogo de veículos disponíveis para spawn
+│   ├── Hud/                   # HUD (painel + abas Comandos/Spawn/Configurações)
+│   └── ...
+├── reverse/               # (Opcional) Engenharia reversa do jogo e do mod com REA + Ghidra
+├── logs/                  # Logs do instalador e da compilação (gerados; reescritos a cada execução)
+├── Build-TurboTrafficIV.ps1   # Compila o mod (com ou sem Visual Studio)
+├── Install-TurboTrafficIV.ps1
+└── LICENSE                # Licença MIT
 ```
 
 ### Explicação das Pastas
@@ -74,6 +79,8 @@ TurboTraffic-IV/
 
 - **ResetHandling/**: Código fonte do mod principal em C#. Este é o script que implementa toda a lógica do turbo e funcionalidades extras.
 
+- **reverse/**: Ferramentas **opcionais** de engenharia reversa (veja [Engenharia reversa](#-engenharia-reversa-opcional)). Não são necessárias para jogar nem para compilar o mod.
+
 ## 🚀 Instalação
 
 ### Automática (recomendado)
@@ -84,6 +91,8 @@ Execute o script `Install-TurboTrafficIV.ps1` no PowerShell (Windows). Ele detec
 .\Install-TurboTrafficIV.ps1
 ```
 
+**Compilando**: `.\Build-TurboTrafficIV.ps1` gera `scripts\ResetHandling.net.dll`, mesmo sem Visual Studio (detalhes em [ResetHandling/README.md](ResetHandling/README.md#-como-compilar)).
+
 **Atualizando o mod**: depois de compilar uma nova versão (veja [ResetHandling/README.md](ResetHandling/README.md) e [MyLoader/README.md](MyLoader/README.md)), basta rodar o instalador de novo apontando para a mesma instalação do jogo. Os arquivos são sempre sobrescritos automaticamente, e qualquer arquivo de uma versão antiga do TurboTraffic-IV que não exista mais na versão atual é removido sozinho (com base num manifesto salvo na pasta do jogo) — **não é preciso apagar a instalação anterior manualmente**. Feche o GTA IV antes de instalar/atualizar, já que os arquivos ficam bloqueados enquanto o jogo está aberto.
 
 Opções úteis:
@@ -93,6 +102,8 @@ Opções úteis:
 - `-Force` — não pede confirmação
 
 Se o PowerShell bloquear a execução de scripts, rode uma vez: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`.
+
+O instalador grava o que fez em `logs\install.log`, na raiz do repositório. O arquivo é reescrito a cada execução, então ele sempre descreve só a última instalação, atualização ou desinstalação.
 
 ### Manual
 
@@ -184,6 +195,36 @@ varredura turbo: total=132 noRaio=18 impulsionados=17 semMotorista=0 capotados=1
 
 Se `noRaio` for muito menor que o esperado, aumente o **Raio de alcance**. Se `impulsionados` for menor que `noRaio`, a diferença está inteira nas quatro colunas de recusa — cada uma corresponde a uma opção ou a uma regra fixa (capotado e o carro do jogador nunca recebem impulso).
 
+A limpeza de detritos registra um resumo a cada 30 segundos (só quando removeu algo):
+
+```
+Limpeza fora do campo de visao: veiculos=7 peds=2 varreduras=40 mundo=118 intervaloSeg=30
+```
+
+`mundo` é o maior número de veículos existentes no intervalo. O jogo tem 140 vagas para veículos; se esse número chegar perto de 140, é o limite do jogo segurando o trânsito.
+
+O log recomeça a cada vez que o jogo é aberto, com a data na primeira linha. O da sessão anterior fica em `TurboTrafficIV.anterior.log`, na mesma pasta — útil quando o jogo fechou ou travou.
+
+## 🔬 Engenharia reversa (opcional)
+
+Para quem quer ir além do mod: a pasta [`reverse/`](reverse/README.md) traz um fluxo pronto para estudar o binário do GTA IV, a ScriptHook e o próprio mod com o [REA](https://rea.tools/) e o [Ghidra](https://ghidra-sre.org/). **Nada disso é necessário para jogar, instalar ou compilar o mod**; é só para quem quiser mexer mais fundo.
+
+```powershell
+.\reverse\Setup-ReverseTools.ps1 -Check   # mostra o que falta (não muda nada)
+.\reverse\Setup-ReverseTools.ps1          # instala REA, JDK 21 e Ghidra nas versões fixadas
+.\reverse\Invoke-ReverseAnalysis.ps1 -Open
+```
+
+O que você ganha:
+
+- **Custo de cada método do mod em chamadas nativas**, calculado a partir do grafo de chamadas da `ScriptHookDotNet.dll`. Mostra, por exemplo, que `Exists()` e `Velocity` são caros e onde vale otimizar. Funciona mesmo sem o jogo instalado.
+- **Leitura do `GTAIV.exe` e da `ScriptHook.dll`**: seções, proteções, flags de linha de comando do motor e a API C++ que a ScriptHook exporta para mods nativos.
+- **Resumo do log do mod** por sessão: varreduras do turbo, limpeza de detritos, erros.
+- **Consultas ao Ghidra** (`-Ghidra`): onde cada flag do motor é lida, pseudocódigo das funções envolvidas.
+- **Um registro de achados versionado** em [`reverse/knowledge/FINDINGS.md`](reverse/knowledge/FINDINGS.md), que avisa quando um achado precisa ser revisto porque o binário mudou.
+
+Requisitos: Windows x64 e Node.js 24.11+. O setup baixa o resto (cerca de 750 MB: Ghidra e JDK) e pede confirmação antes de instalar. Detalhes, tempos e como registrar um achado: [reverse/README.md](reverse/README.md).
+
 
 ## 📝 Créditos
 
@@ -202,6 +243,14 @@ Se `noRaio` for muito menor que o esperado, aumente o **Raio de alcance**. Se `i
 - **MyLoader**: Loader customizado desenvolvido para garantir carregamento seguro do ScriptHookDotNet
 - **ResetHandling**: Script principal do mod desenvolvido em C#
 
+### Ferramentas opcionais de engenharia reversa
+
+Não são distribuídas com o mod; o `reverse\Setup-ReverseTools.ps1` baixa cada uma da fonte oficial.
+
+- **REA (Reverse Engineer Anything)** — [morluto/rea](https://github.com/morluto/rea), licença MIT
+- **Ghidra** — [NationalSecurityAgency/ghidra](https://github.com/NationalSecurityAgency/ghidra), licença Apache 2.0
+- **Microsoft Build of OpenJDK 21** — via winget
+
 ## ⚠️ Avisos
 
 - Faça backup dos arquivos originais do jogo antes de instalar qualquer mod
@@ -216,15 +265,20 @@ Se o mod não funcionar:
 2. Certifique-se de que a pasta `scripts` existe no diretório do jogo
 3. Verifique se você tem as permissões necessárias para modificar arquivos do jogo
 4. Certifique-se de estar usando uma versão compatível do GTA IV
-5. Se o instalador reclamar de arquivos ausentes, compile `ResetHandling.sln` (Release|x86) e `MyLoader.sln` (Release|Win32) antes de instalar
+5. Se o instalador reclamar de arquivos ausentes, compile antes de instalar: `.\Build-TurboTrafficIV.ps1` gera o mod mesmo sem Visual Studio (o `MyLoader.asi` já vem pronto em `Main_GTAIV_Folder/`; recompilá-lo exige o `MyLoader.sln` no Visual Studio)
 6. Se o instalador travar dizendo que o jogo está em execução, feche o GTA IV e rode o instalador de novo
-7. Se a detecção automática não encontrar sua instalação (ex.: aparece "Múltiplas instalações" sem nenhuma listada), use `-GamePath` apontando para a pasta onde está o `GTAIV.exe`/`EFLC.exe` — o instalador também aceita a pasta um nível acima (ex. a pasta "Grand Theft Auto IV" da Complete Edition da Steam, que contém uma subpasta `GTAIV\`)
-8. Se o HUD não aparecer ao apertar F1: o mod mostra "TurboTraffic-IV: HUD aberto" com o texto nativo do jogo ao receber a tecla. Se esse texto aparece mas o painel não, o problema é no desenho; se nem o texto aparece, a tecla não chegou. Detalhes em `Documentos\TurboTraffic-IV\TurboTrafficIV.log`
-9. Se algum veículo não estiver pegando o efeito dos modos, veja [Quando o efeito não pega em algum carro](#-quando-o-efeito-não-pega-em-algum-carro) — o log diz quantos veículos entraram no raio e por qual filtro cada um foi recusado
+7. O instalador registra cada passo em `logs\install.log` (na raiz do repositório). Esse é o primeiro lugar para olhar quando algo falha
+8. Se a detecção automática não encontrar sua instalação (ex.: aparece "Múltiplas instalações" sem nenhuma listada), use `-GamePath` apontando para a pasta onde está o `GTAIV.exe`/`EFLC.exe` — o instalador também aceita a pasta um nível acima (ex. a pasta "Grand Theft Auto IV" da Complete Edition da Steam, que contém uma subpasta `GTAIV\`)
+9. Se o HUD não aparecer ao apertar F1: o mod mostra "TurboTraffic-IV: HUD aberto" com o texto nativo do jogo ao receber a tecla. Se esse texto aparece mas o painel não, o problema é no desenho; se nem o texto aparece, a tecla não chegou. Detalhes em `Documentos\TurboTraffic-IV\TurboTrafficIV.log`
+10. Se algum veículo não estiver pegando o efeito dos modos, veja [Quando o efeito não pega em algum carro](#-quando-o-efeito-não-pega-em-algum-carro) — o log diz quantos veículos entraram no raio e por qual filtro cada um foi recusado
 
 Para mais detalhes, consulte [INSTALL.md](INSTALL.md).
 
 ## 📄 Licença
 
-Este projeto é fornecido "como está" para uso pessoal e educacional.
+O código e a documentação do TurboTraffic-IV estão sob a [Licença MIT](LICENSE) — © 2025-2026 Gabryel Lima da Silva.
+
+Em resumo: você pode usar, copiar, modificar, mesclar, publicar, distribuir, sublicenciar e vender, inclusive em projetos fechados ou comerciais. A única condição é manter o aviso de copyright e o texto da licença nas cópias. O software é fornecido "como está", sem garantia de nenhum tipo, e o autor não se responsabiliza por nenhum dano ou consequência do uso.
+
+Os binários de terceiros redistribuídos em `Main_GTAIV_Folder/` e `scripts/` (Ultimate ASI Loader, ScriptHook, ScriptHookDotNet e o hook da Complete Edition) **não** estão cobertos por esta licença; eles seguem os termos dos seus autores. Grand Theft Auto IV é marca da Rockstar Games / Take-Two Interactive, e este projeto não tem afiliação com elas.
 

@@ -10,9 +10,11 @@ using System.Collections.Generic;
 // Vehicle ou Ped —, ele cai no Equals(object) herdado de System.Object, que é
 // comparação por REFERÊNCIA.
 //
-// E World.GetAllVehicles() constrói wrappers novos a cada chamada (não há cache
-// de instâncias na biblioteca). Ou seja: o mesmo carro do jogo vira um objeto
-// diferente a cada tick, com o mesmo hash mas "diferente" para a coleção. O
+// E não dá para contar com a mesma instância para o mesmo carro: World.GetAllVehicles
+// passa por um cache por handle da biblioteca (ContentCache — ver reverse/knowledge,
+// achado F-006), mas outros caminhos (GetPedOnSeat, CurrentVehicle) e o despejo
+// desse cache podem entregar wrappers diferentes para o mesmo handle. Um objeto
+// diferente tem o mesmo hash mas é "diferente" para a coleção. O
 // resultado era um Contains() que nunca acertava e um "restaurar quem não foi
 // tocado neste tick" que desfazia, no mesmo frame, o que acabara de ser
 // aplicado — foi isso que fazia a invencibilidade não pegar e o Modo Solto
