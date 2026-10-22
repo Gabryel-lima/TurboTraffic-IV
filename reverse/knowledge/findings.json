@@ -19,8 +19,8 @@
     },
     "mod-dll": {
       "name": "ResetHandling.net.dll",
-      "sha256": "58081c846194e8ceaeeafea6f1962ac2df320dd1448d9ab51e65b21bd326d058",
-      "note": "build com as otimizações F-001..F-005 (Build-TurboTrafficIV.ps1, csc C# 5), 2026-10-21"
+      "sha256": "bb002c78c97167d860389d154f4accc33ddf45b4d19b8d9201e4cf29285109c4",
+      "note": "build com F-001..F-005 e a correção do Modo Solto (F-023), 2026-10-22"
     },
     "mod-log": {
       "name": "TurboTrafficIV.log",
@@ -392,6 +392,22 @@
       },
       "recommendation": "Ligado à limitação conhecida de peds a mais no Modo Solto: motoristas ejetados ocupam vagas do pool de peds. FUN_005d3400 (vagas livres) é candidata a ser lida pelo mod para decidir quando limpar com mais agressividade.",
       "learned_at": "2026-10-21"
+    },
+    {
+      "id": "F-023",
+      "title": "Modo Solto ejetava os motoristas: ClearAllImmediately arranca o ped do carro",
+      "area": "mod-correcao",
+      "kind": "inferred",
+      "status": "aplicado",
+      "artifact": "mod-dll",
+      "claim": "ReleaseDriverAi chamava Task.ClearAllImmediately (CLEAR_CHAR_TASKS_IMMEDIATELY) a cada 400 ms em todo motorista do raio; esse native tira o ped do veículo na hora. RestoreDriverAiCore fazia o mesmo e, com o ped já fora, isInVehicle() dava falso e ele recebia WanderAround. Explica os pedestres surgindo em todo canto do raio com o Modo Solto e a pressão no pool de peds (F-020). Comportamento do native é conhecimento da comunidade, coerente com o sintoma relatado; não verificado em execução.",
+      "evidence": {
+        "tool": "leitura do código + rea inspect-managed-members (Tasks)",
+        "detail": "ResetVehicleScript.cs ReleaseDriverAi/RestoreDriverAiCore",
+        "evidence_ids": []
+      },
+      "recommendation": "Aplicado: motorista recebe Task.Wait (TASK_PAUSE) renovado a cada 1 s, BlockPermanentEvents=true e WillFlyThroughWindscreen=false — fica sentado sem IA de trânsito e vai junto com o carro. KeepFreedDriversSeated recoloca no banco quem for parar fora do próprio carro. A devolução usa ClearAll. Verificar em jogo: contagem de peds e se a linha de limpeza ainda remove peds.",
+      "learned_at": "2026-10-22"
     },
     {
       "id": "M-001",

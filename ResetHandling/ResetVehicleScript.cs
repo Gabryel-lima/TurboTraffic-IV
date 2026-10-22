@@ -41,12 +41,21 @@ public class NPCTurboBoost : Script
     // Motoristas com a IA de trajeto desligada pelo Modo Solto, e o instante
     // da última limpeza de tarefa de cada um — precisam ter a tarefa de
     // trânsito devolvida quando o modo acaba.
-    private readonly Dictionary<Ped, int> _freedDrivers = new Dictionary<Ped, int>(PedByHandle);
+    private readonly Dictionary<Ped, FreedDriver> _freedDrivers = new Dictionary<Ped, FreedDriver>(PedByHandle);
 
-    // Intervalo entre reemissões do "esqueça o trajeto". Curto o bastante para
-    // a IA nunca retomar o volante, longo o bastante para o motorista chegar a
-    // reagir entre uma limpeza e outra.
-    private const int FreeRideRetaskIntervalMs = 400;
+    private sealed class FreedDriver
+    {
+        public int LastTask;  // GameTime da última pausa dada
+        public Vehicle Car;   // carro de onde ele foi tirado da IA
+    }
+
+    // Duração de cada pausa dada ao motorista solto; renovada a cada
+    // FreeRideRetaskIntervalMs, então nunca chega a vencer.
+    private const int FreeRidePauseMs = 2000;
+
+    // Intervalo de renovação da pausa: metade da duração, para a IA de trânsito
+    // nunca ter uma brecha para retomar o volante.
+    private const int FreeRideRetaskIntervalMs = 1000;
 
     // Varredura de detritos: cara demais para rodar todo frame, e não precisa —
     // sucata não aparece de um frame para o outro.
@@ -364,7 +373,7 @@ public class NPCTurboBoost : Script
         // Sem motorista não há IA a soltar — o carro já está entregue à física,
         // que é justamente o estado que este modo procura.
         if (driver != null)
-            ReleaseDriverAi(driver);
+            ReleaseDriverAi(driver, v);
 
         Vector3 forward = m.Forward;
         float push = ModSettings.ChaosFreeRidePush * _turboFrameScale;
@@ -403,32 +412,78 @@ public class NPCTurboBoost : Script
     }
 
     // Desliga o "pathing" do motorista sem apagar o motorista.
-    private void ReleaseDriverAi(Ped driver)
+    //
+    // ANTES isto chamava Task.ClearAllImmediately a cada 400 ms. No GTA IV esse
+    // native (CLEAR_CHAR_TASKS_IMMEDIATELY) ARRANCA o ped do veículo e o põe no
+    // chão: cada carro do raio cuspia o motorista várias vezes por segundo,
+    // inclusive longe da câmera — era a "fábrica de pedestres" do Modo Solto,
+    // e a enxurrada de peds soltos sendo criados e apagados derrubava o jogo.
+    //
+    // Agora o motorista recebe uma PAUSA (TASK_PAUSE): continua sentado ao
+    // volante, mas sem tarefa de trânsito, então quem dirige o carro é a física.
+    // BlockPermanentEvents impede que ele decida fugir e saia do carro; ele
+    // continua animado (balança com as batidas, reage ao capotar), só não abre
+    // a porta. A pausa é renovada antes de vencer.
+    private void ReleaseDriverAi(Ped driver, Vehicle car)
     {
         int now = Game.GameTime;
-        int lastClear;
-        bool known = _freedDrivers.TryGetValue(driver, out lastClear);
+        FreedDriver state;
+        bool known = _freedDrivers.TryGetValue(driver, out state);
 
         if (!known)
         {
-            // Isto é o que faz o motorista continuar existindo: no primeiro
-            // impacto forte ele atravessava o para-brisa e ficava para trás na
-            // rua, e o carro seguia voando vazio. Preso ao banco, ele vai junto.
+            // Preso ao banco: no primeiro impacto forte ele atravessava o
+            // para-brisa e o carro seguia voando vazio.
             driver.WillFlyThroughWindscreen = false;
             driver.CanBeKnockedOffBike = false;
+            driver.BlockPermanentEvents = true;
             driver.Task.AlwaysKeepTask = false;
+
+            state = new FreedDriver();
+            _freedDrivers[driver] = state;
         }
 
-        if (!known || now - lastClear >= FreeRideRetaskIntervalMs)
+        state.Car = car;
+
+        if (!known || now - state.LastTask >= FreeRideRetaskIntervalMs)
         {
-            // Limpar a tarefa periodicamente, em vez de bloquear os eventos do
-            // ped de uma vez (BlockPermanentEvents), é o que o mantém vivo como
-            // personagem: bloqueado ele vira estátua e não reage a nada. Assim
-            // ele entra em pânico, tenta agarrar o volante e tenta pular fora
-            // entre uma limpeza e outra — e a limpeza seguinte cancela a fuga
-            // antes que ela termine, sem nunca deixar a IA de trajeto voltar.
-            driver.Task.ClearAllImmediately();
-            _freedDrivers[driver] = now;
+            driver.Task.Wait(FreeRidePauseMs);
+            state.LastTask = now;
+        }
+    }
+
+    // Rede de segurança: motorista do Modo Solto que mesmo assim foi parar fora
+    // do carro (explosão, capotagem violenta, script de missão) volta ao banco
+    // do motorista do MESMO carro, se ele ainda existir e o banco estiver livre.
+    // Sem isto ele seria "devolvido à IA" a pé e viraria mais um pedestre.
+    private void KeepFreedDriversSeated(HashSet<Ped> touchedThisTick)
+    {
+        foreach (KeyValuePair<Ped, FreedDriver> pair in _freedDrivers)
+        {
+            Ped p = pair.Key;
+            Vehicle car = pair.Value.Car;
+
+            if (touchedThisTick.Contains(p))
+                continue;
+
+            try
+            {
+                if (p == null || !p.Exists() || p.isDead || p.isInVehicle())
+                    continue;
+
+                if (car == null || !car.Exists() || !car.isSeatFree(VehicleSeat.Driver))
+                    continue;
+
+                if (_tickPlayerPos.DistanceTo(car.Position) > ModSettings.ChaosRadius)
+                    continue;
+
+                p.WarpIntoVehicle(car, VehicleSeat.Driver);
+                touchedThisTick.Add(p);
+            }
+            catch (Exception ex)
+            {
+                ModLog.WriteException("KeepFreedDriversSeated", ex);
+            }
         }
     }
 
@@ -458,7 +513,11 @@ public class NPCTurboBoost : Script
         driver.BlockPermanentEvents = false;
         driver.WillFlyThroughWindscreen = true;
         driver.CanBeKnockedOffBike = true;
-        driver.Task.ClearAllImmediately();
+
+        // ClearAll, NÃO ClearAllImmediately: a versão "immediately" tira o ped
+        // do carro, e aí isInVehicle() abaixo dava falso e ele recebia
+        // WanderAround — todo motorista devolvido virava pedestre.
+        driver.Task.ClearAll();
 
         // Motorista de missão: limpa a tarefa e PARA por aqui, sem impor
         // nenhuma. Dar "dirija por aí" ao alvo de uma perseguição o
@@ -1084,7 +1143,12 @@ public class NPCTurboBoost : Script
 
         // Motorista que saiu do raio, ou o modo inteiro desligado: a IA volta.
         if (freeRideWanted)
+        {
+            // Antes de devolver a IA a quem "não foi tocado": quem foi parar
+            // fora do carro volta ao banco em vez de virar pedestre.
+            KeepFreedDriversSeated(freedThisTick);
             RestoreFreedDriversNotTouched(freedThisTick);
+        }
         else
             RestoreAllFreedDrivers();
     }
